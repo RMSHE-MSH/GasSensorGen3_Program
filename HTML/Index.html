@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+
+<body>
+    <P>SetRelayState</P>
+    <form method="post">
+        <input type="radio" name="GPIO" value="5">GPIO5
+        <input type="radio" name="GPIO" value="4">GPIO4
+        <input type="radio" name="GPIO" value="13">GPIO13
+        <input type="radio" name="GPIO" value="16">GPIO16<br>
+
+        <input type="radio" name="SETSTATE" value="0">POWUP
+        <input type="radio" name="SETSTATE" value="1">POWDO<br>
+
+        <button>SET</button>
+    </form><br>
+
+    <P>GetRelayState</P>
+    <form method="post">
+        <input type="radio" name="GPIO" value="5">GPIO5
+        <input type="radio" name="GPIO" value="4">GPIO4
+        <input type="radio" name="GPIO" value="13">GPIO13
+        <input type="radio" name="GPIO" value="16">GPIO16<br>
+
+        <input type="text" name="GETSTATE" value="1">
+
+        <button>GET</button>
+    </form>
+
+</body>
+
+</html>
