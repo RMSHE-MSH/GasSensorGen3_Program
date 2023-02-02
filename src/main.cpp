@@ -1,5 +1,6 @@
 // [RMSHE Infinty] GasSensorGen3_Program 2023.01.20 Powered by RMSHE
 // MCU: ESP8266; MODULE: ESP12F 74880;
+#include <ESP8266_Seniverse.h>
 #include <Hash.h>
 
 #include <stack>
@@ -31,6 +32,8 @@ bool allowResponse = true;      // true:允许服务器对客户端进行响应;
 bool allowDownloadMode = true;  // true:允许进入下载模式;
 bool freezeMode = false;  //[浅度休眠模式-freeze], 冻结I/O设备, 关闭外设, ESP-12F进入Modem-sleep模式, 程序上只运行CMDControlPanel网络服务, 其他服务冻结;
 bool diskMode = false;  //[深度休眠模式-disk] 运行状态(GPIO_Status, 系统模式和状态, 文本框信息)数据存到Flash(醒来时恢复状态), 然后ESP12F进入深度睡眠;
+
+bool CMDCP_State = false;  // CMDCP是否被打开(trrue:表示被打开);
 
 class FlashFileSystem {
    private:
@@ -202,8 +205,8 @@ class FlashFileSystem {
             dataFile = LittleFS.open(path.c_str(), "w");  // 建立File对象用于向LittleFS中的file对象写入信息(新建&覆盖);
         }
 
-        dataFile.println(text);  // 向dataFile写入字符串信息
-        dataFile.close();        // 完成文件写入后关闭文件}
+        dataFile.print(text);  // 向dataFile写入字符串信息
+        dataFile.close();      // 完成文件写入后关闭文件}
     }
 
     // 文件覆盖内容(内容, 工作目录下的文件名, 或直接指定文件路径[指定文件路径后工作目录下的文件名就无效了]);
@@ -221,8 +224,8 @@ class FlashFileSystem {
         // 确认闪存中是否有文件
         dataFile = LittleFS.open(path.c_str(), "w");  // 建立File对象用于向LittleFS中的file对象写入信息(新建&覆盖);
 
-        dataFile.println(text);  // 向dataFile写入字符串信息
-        dataFile.close();        // 完成文件写入后关闭文件
+        dataFile.print(text);  // 向dataFile写入字符串信息
+        dataFile.close();      // 完成文件写入后关闭文件
     }
 
     // 创建或覆盖文件(工作目录下的文件名);
@@ -624,13 +627,14 @@ class Desktop {
         int StatusBars_Pos[8] = {-16, -16, -16, -16, -16, -16, -16, -16};
 
         // 图标编号(对应oledfont.h中的编号);
-        unsigned char Clear_Icon = 5;
+        unsigned char Clear_Icon = 6;
 
         unsigned char Charging = 0;
         unsigned char WIFI = 1;
         unsigned char ProgramDownload = 2;
         unsigned char Disconnected = 3;
         unsigned char Battery = 4;
+        unsigned char CMDCP = 5;
         //......
     } StatusBars_Ranked;
     StatusBars_Ranked SBR;
@@ -691,11 +695,18 @@ class Desktop {
             Icon_Register(SBR.Disconnected, false);  // 注销图标位置;
         }
 
-        /// 停止充电状态;
+        // 停止充电状态;
         if (Charging_State == false) {
             Icon_Register(SBR.Battery, true);  // 注册图标位置;
         } else {
             Icon_Register(SBR.Battery, false);  // 注销图标位置;
+        }
+
+        // CMDCP被打开;
+        if (CMDCP_State == true) {
+            Icon_Register(SBR.CMDCP, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.CMDCP, false);  // 注销图标位置;
         }
     }
 
@@ -920,9 +931,8 @@ class SystemSleep {
     //[深度休眠模式-disk] 运行状态(GPIO_Status, 系统模式和状态, 文本框信息)数据存到Flash(醒来时恢复状态), 然后ESP12F进入深度睡眠;
     void Sys_diskMode(uint64_t time_us = 0) {
         // 登出和锁定CMDCP;
-        Developer_Mode = false;          // 退出开发者模式(显示状态栏和桌面时钟);
-        oled.setTextBox(0, 0, 128, 48);  // 设置文本框使其不遮挡状态栏;
-        oled.OLED_Clear();               // 清空OLED屏幕;
+        CMDCP_State = false;     // 用户关闭CMDCP;
+        Developer_Mode = false;  // 退出开发者模式(显示状态栏和桌面时钟);
 
         diskMode = true;   // 启用深度睡眠;
         LittleFS.begin();  // 启动闪存文件系统
@@ -937,7 +947,7 @@ class SystemSleep {
         SysModeAndStatusFile.print(getSysModeAndStatus());  // 向SysModeAndStatusFile写入当前系统模式和状态状态信息;
         SysModeAndStatusFile.close();                       // 完成文件写入后关闭文件;
 
-        // [PrintBox(文本框)]-保存进入深度睡眠前的OLED上输出的文本信息到Flash, 以便从深度睡眠醒来时恢复;
+        // [PrintBox(文本框)]-保存进入深度睡眠前的OLED上输出的文本信息到Flash;
         // 文本框休眠文件的数据结构: String("OLED屏幕第1行"+"\n"+"OLED屏幕第2行"+"\n"+"OLED屏幕第3行"+......)
         File PrintBoxFile = LittleFS.open("/SleepFile/PrintBox.txt", "w");  // 创建&覆盖并打开PrintBox.txt文件;
         for (auto& i : oled.getPrintBox()) {
@@ -954,7 +964,8 @@ class CMDControlPanel {
     String CMD = "";           // 用来缓存CMD指令;
     String PassWord = "";      // 使用CMDControlPanel前需要输入密码(系统启动时将flash中的密码缓存到此);
     bool LockerState = false;  // PassLocker为true时表示CMD已经解锁, 解锁状态将一直保存在RAM中直到MCU断电或用户通过命令吊销;
-    String CMDCP_Online_Response = "";
+    String CMDCP_Online_Response = "";  // 临时储存CMD的响应数据;
+    vector<String> clientLogedIP;       // 这里储存了已登录并且正在使用还未登出CMD用户的IP地址(登出时删除IP);
 
     // 用于打印的操作系统信息;
     String GSG3_Os_Info =
@@ -1018,6 +1029,7 @@ class CMDControlPanel {
                     CMDCP_Response("Accepted");
                     server.send(200, "text/html", CMDCP_Online_Response);  // 向客户端发送密码设置成功的字符串(主动发送不是响应);
                     allowResponse = true;                                  // 允许服务器对客户端进行响应;
+                    CMDCP_State = false;                                   // 用户离开CMDCP;
                     return false;  // 密码设置成功结束PassLocker程序, 重新启动PassLocker程序输入新密码即可;
                 }
             }
@@ -1054,6 +1066,7 @@ class CMDControlPanel {
             }
         }
 
+        CMDCP_State = false;   // 用户离开CMDCP;
         allowResponse = true;  // 允许服务器对客户端进行响应;
         return false;          // 密码错误返回false;
     }
@@ -1067,11 +1080,12 @@ class CMDControlPanel {
         }
     }
 
-    void saveCmdHistory(String CMD) {
+    // 保存执行的命令;
+    void saveCmdHistory(String CMD, String clientIP) {
         LittleFS.begin();  // 启动闪存文件系统
 
-        File cmdHistory = LittleFS.open("/CMD_History.txt", "a");
-        cmdHistory.print(CMD + "\n");
+        File cmdHistory = LittleFS.open("/CMD_History.txt", "a");                       // 打开CMD_History.txt追加日志;
+        cmdHistory.print(clientIP + "-" + timeRef.timeRead(false) + "-" + CMD + "\n");  // IP地址+时间+命令+换行;
         cmdHistory.close();
     }
 
@@ -1089,18 +1103,42 @@ class CMDControlPanel {
 
         CMD = CMDCP_Online_Message;  // 更新在线控制台发送的网络命令到CMD缓存;
 
-        // 当处于锁定状态并且没有在接收串口数据并且接收到进入CMDCP的命令;
-        if (LockerState == false && (CMD == "CMD" || CMD == "cmd" || CMD == "login")) {
-            LockerState = PassLocker();  // 更新PassLocker状态;
+        String clientLogingIP = server.client().remoteIP().toString();  // 获取用户的IP地址;
 
-            // 如果用户进入了CMDCP;
+        // 检查用户的IP地址;
+        bool LockerState = false;        // 将CMD设为锁定状态;
+        for (auto& i : clientLogedIP) {  // 将请求用户的IP与已登录并且正在使用还未登出CMD用户的IP地址进行比对;
+            if (i == clientLogingIP) LockerState = true;  // 如果发现该IP还在登录状态(未登出)则为此用户开放CMD;
+        }
+
+        // 当处于用户未登录状态(锁定状态)并且接收到进入CMDCP的命令;
+        if (LockerState == false && (CMD == "CMD" || CMD == "cmd" || CMD == "login")) {
+            CMDCP_State = true;  // 用户打开CMDCP;
+
+            LockerState = PassLocker();  // 新用户登录或已退出登录的用户重新登录, 需要输入密码更新PassLocker状态;
+
+            // 如果用户输入了正确的密码;
             if (LockerState == true) {
-                Developer_Mode = true;           // 进入开发者模式(此模式下不会显示状态栏, 不会显示桌面时钟);
-                oled.setTextBox(0, 0, 128, 64);  // 使控制台文本框全屏显示;
+                // 只有clientLogedIP为空时(即首个用户登入)才进入开发模式, 并设置文本框全屏;
+                if (clientLogedIP.empty() == true) {
+                    Developer_Mode = true;           // 进入开发者模式(此模式下不会显示状态栏, 不会显示桌面时钟);
+                    oled.setTextBox(0, 0, 128, 64);  // 使控制台文本框全屏显示;
+                }
+
+                clientLogedIP.push_back(clientLogingIP);  // 将该用户的IP地址标记为已登录并且正在使用还未登出CMD用户的IP;
+
+                /*记录用户的登录时间和IP地址*/
+                LittleFS.begin();                                                                  // 启动闪存文件系统
+                File cmdLoggedInfo = LittleFS.open("/CMD_Logged_Info.txt", "a");                   // 打开CMD_Logged_Info.txt追加日志;
+                cmdLoggedInfo.print(clientLogingIP + "-" + timeRef.timeRead(false) + "-login\n");  // IP地址+时间+登入记录;
+                cmdLoggedInfo.close();
             }
         }
 
-        if (LockerState == true) commandIndexer();  // 处于解锁状态时可使用CMDCP;
+        if (LockerState == true) {
+            saveCmdHistory(CMD, clientLogingIP);  // 保存执行的命令;
+            commandIndexer();                     // 已登录用户可使用CMDCP;
+        }
 
         allow = false;
         return CMDCP_Online_Response;
@@ -1130,273 +1168,330 @@ class CMDControlPanel {
     }
 
     void commandIndexer() {
-        if (CMD != "") {
-            oled.print("> " + CMD);
-            Serial.println("> " + CMD);
+        oled.print("> " + CMD);
+        Serial.println("> " + CMD);
 
-            // 以空格分割字符串;
-            vector<String> CMD_Index = oled.strsplit(CMD, " ");
+        // 以空格分割字符串;
+        vector<String> CMD_Index = oled.strsplit(CMD, " ");
 
-            //{显示当前工作目录(print work directory)}pwd
-            if (CMD_Index[0] == "pwd") {
-                CMDCP_Response(FFileS.getWorkDirectory());
-            }
+        //{显示当前工作目录(print work directory)}pwd
+        if (CMD_Index[0] == "pwd") {
+            CMDCP_Response(FFileS.getWorkDirectory());
+        }
 
-            // {显示工作目录下的内容(List files)}ls
-            if (CMD_Index[0] == "ls") {
-                String listDirectory = FFileS.listDirectoryContents();
-                CMDCP_Response(listDirectory);
-            }
+        // {显示工作目录下的内容(List files)}ls
+        if (CMD_Index[0] == "ls") {
+            String listDirectory = FFileS.listDirectoryContents();
+            CMDCP_Response(listDirectory);
+        }
 
-            /*
-            {切换当前工作目录(Change directory)}cd [dirName]
-            [cd ~][cd /] : 切换到Flash根目录;
-            [cd -] : 返回上一个打开的目录;
-            */
-            if (CMD_Index[0] == "cd") {
-                if (CMD_Index[1] == "~") {
-                    FFileS.changeDirectory("/");
-                } else if (CMD_Index[1] == "-") {
-                    FFileS.backDirectory();
-                } else {
-                    // 检查字符串 CMD_Index[1] 的最后一个字符是否是斜杠"/", 如果不是，就在字符串末尾添加一个斜杠。
-                    if (CMD_Index[1].charAt(CMD_Index[1].length() - 1) != '/') CMD_Index[1] += '/';
-                    FFileS.changeDirectory(CMD_Index[1]);
-                }
-                CMDCP_Response("");  // 空响应(该指令无响应内容);
-            }
-
-            // {打开工作目录下的文件(concatenate)}cat [fileName]
-            if (CMD_Index[0] == "cat") {
-                String File_Info = FFileS.readFile(CMD_Index[1]);
-                CMDCP_Response(File_Info);
-            }
-
-            // {在工作目录下创建文件}touch [fileName]
-            if (CMD_Index[0] == "touch") {
-                FFileS.createFile(CMD_Index[1]);
-                CMDCP_Response("");  // 空响应(该指令无响应内容);
-            }
-
-            // {在工作目录下新建文件夹(Make Directory)}mkdir dirName
-            if (CMD_Index[0] == "mkdir") {
-                FFileS.makeDirector(CMD_Index[1]);
-                CMDCP_Response("");  // 空响应(该指令无响应内容);
-            }
-
-            /*
-            echo [string] ：内容打印到控制台
-            echo [string] > [fileName] ：将内容直接覆盖到文件中
-            echo [string] >> [fileName] ：将内容追加到文件中
-            */
-            if (CMD_Index[0] == "echo") {
-                if (CMD_Index[2] == ">") {
-                    FFileS.fileCover(CMD_Index[1], CMD_Index[3]);
-                    CMDCP_Response("");  // 空响应(该指令无响应内容);
-                } else if (CMD_Index[2] == ">>") {
-                    FFileS.fileAppend(CMD_Index[1], CMD_Index[3]);
-                    CMDCP_Response("");  // 空响应(该指令无响应内容);
-                } else {
-                    CMDCP_Response(CMD_Index[1]);
-                }
-            }
-
-            /*
-            {删除一个文件或者目录(Remove)}
-            rm [fileName] : 删除工作目录下的文件;
-            rm -r [dirName] : 删除工作目录下的文件夹;
-            */
-            if (CMD_Index[0] == "rm") {
-                if (CMD_Index[1] == "-r") {
-                    FFileS.removeDirector(CMD_Index[2]);
-                } else {
-                    FFileS.removeFile(CMD_Index[1]);
-                }
-                CMDCP_Response("");  // 空响应(该指令无响应内容);
-            }
-
-            /*
-            {复制一个文件或目录(Copy file)}cp [-options] [sourcePath] [targetPath];
-            cp [源文件路径] [目标文件路径] : 复制一个文件到另一个文件;
-            cp -r [源目录路径] [目标目录路径] : 复制一个目录到另一个目录;
-            */
-            if (CMD_Index[0] == "cp") {
-                if (CMD_Index[1] == "-r") {
-                    FFileS.copyDir(CMD_Index[2], CMD_Index[3]);
-                } else {
-                    FFileS.copyFile(CMD_Index[1], CMD_Index[2]);
-                }
-                CMDCP_Response("");  // 空响应(该指令无响应内容);
-            }
-
-            /*
-            {文件或目录改名或将文件或目录移入其它位置(Move)}mv [-options] [sourcePath] [targetPath];
-            mv [源文件路径] [目标文件路径] : 移动一个文件到另一个文件;
-            mv -r [源目录路径] [目标目录路径] : 移动一个目录到另一个目录;
-            */
-            if (CMD_Index[0] == "mv") {
-                if (CMD_Index[1] == "-r") {
-                    FFileS.copyDir(CMD_Index[2], CMD_Index[3], true);
-                } else {
-                    FFileS.copyFile(CMD_Index[1], CMD_Index[2], true);
-                }
-                CMDCP_Response("");  // 空响应(该指令无响应内容);
-            }
-
-            /*
-            {查找指定目录下的文件(包含子目录的文件)}find [dirPath] [fileName] : 在dirPath目录下按文件名查找文件;
-            [fileName] = *.* : 查找所有文件;
-            [fileName] = *.txt : 查找所有扩展名为txt的文件;
-            [fileName] = a.txt : 查找a.txt文件;
-            */
-            if (CMD_Index[0] == "find") {
+        /*
+        {切换当前工作目录(Change directory)}cd [dirName]
+        [cd ~][cd /] : 切换到Flash根目录;
+        [cd -] : 返回上一个打开的目录;
+        */
+        if (CMD_Index[0] == "cd") {
+            if (CMD_Index[1] == "~") {
+                FFileS.changeDirectory("/");
+            } else if (CMD_Index[1] == "-") {
+                FFileS.backDirectory();
+            } else {
                 // 检查字符串 CMD_Index[1] 的最后一个字符是否是斜杠"/", 如果不是，就在字符串末尾添加一个斜杠。
                 if (CMD_Index[1].charAt(CMD_Index[1].length() - 1) != '/') CMD_Index[1] += '/';
-
-                String foundFile = FFileS.findFiles(CMD_Index[1], CMD_Index[2]);
-                CMDCP_Response(foundFile);
+                FFileS.changeDirectory(CMD_Index[1]);
             }
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
+        }
 
-            //{显示操作系统版本信息}osinfo
-            if (CMD_Index[0] == "osinfo") {
-                CMDCP_Response(GSG3_Os_Info);
+        // {打开工作目录下的文件(concatenate)}cat [fileName]
+        if (CMD_Index[0] == "cat") {
+            String File_Info = FFileS.readFile(CMD_Index[1]);
+            CMDCP_Response(File_Info);
+        }
 
-                oled.OLED_DrawBMP(0, 0, 128, 48, GasSensorGen3OS_Info);  // 显示 GasSensorGen3OS_Info;
+        // {在工作目录下创建文件}touch [fileName]
+        if (CMD_Index[0] == "touch") {
+            FFileS.createFile(CMD_Index[1]);
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
+        }
+
+        // {在工作目录下新建文件夹(Make Directory)}mkdir dirName
+        if (CMD_Index[0] == "mkdir") {
+            FFileS.makeDirector(CMD_Index[1]);
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
+        }
+
+        /*
+        echo [string] ：内容打印到控制台
+        echo [string] > [fileName] ：将内容直接覆盖到文件中
+        echo [string] >> [fileName] ：将内容追加到文件中
+        */
+        if (CMD_Index[0] == "echo") {
+            if (CMD_Index[2] == ">") {
+                FFileS.fileCover(CMD_Index[1], CMD_Index[3]);
+                CMDCP_Response("");  // 空响应(该指令无响应内容);
+            } else if (CMD_Index[2] == ">>") {
+                FFileS.fileAppend(CMD_Index[1], CMD_Index[3]);
+                CMDCP_Response("");  // 空响应(该指令无响应内容);
+            } else {
+                CMDCP_Response(CMD_Index[1]);
             }
+        }
 
-            //{立刻重新启动MCU}reboot
-            if (CMD_Index[0] == "reboot") {
-                digitalWrite(RST, LOW);  // MCU复位;
-                CMDCP_Response("");      // 空响应(该指令无响应内容);
+        /*
+        {删除一个文件或者目录(Remove)}
+        rm [fileName] : 删除工作目录下的文件;
+        rm -r [dirName] : 删除工作目录下的文件夹;
+        */
+        if (CMD_Index[0] == "rm") {
+            if (CMD_Index[1] == "-r") {
+                FFileS.removeDirector(CMD_Index[2]);
+            } else {
+                FFileS.removeFile(CMD_Index[1]);
             }
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
+        }
 
-            //{打印主要GPIO引脚的状态(Print GPIO status)}pios
-            if (CMD_Index[0] == "pios") {
-                CMDCP_Response(SysSleep.GPIO_Read());
+        /*
+        {复制一个文件或目录(Copy file)}cp [-options] [sourcePath] [targetPath];
+        cp [源文件路径] [目标文件路径] : 复制一个文件到另一个文件;
+        cp -r [源目录路径] [目标目录路径] : 复制一个目录到另一个目录;
+        */
+        if (CMD_Index[0] == "cp") {
+            if (CMD_Index[1] == "-r") {
+                FFileS.copyDir(CMD_Index[2], CMD_Index[3]);
+            } else {
+                FFileS.copyFile(CMD_Index[1], CMD_Index[2]);
             }
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
+        }
 
-            /*
-            {点亮板载的RGBLED}LED [color] [state]
-            led r 1/true/enable : 点亮红色的LED
-            led g 1/true/enable : 点亮绿色的LED
-            led b 1/true/enable : 点亮蓝色的LED
-            led r 0/false/disable : 熄灭红色的LED
-            led g 0/false/disable : 熄灭绿色的LED
-            led b 0/false/disable : 熄灭蓝色的LED
+        /*
+        {文件或目录改名或将文件或目录移入其它位置(Move)}mv [-options] [sourcePath] [targetPath];
+        mv [源文件路径] [目标文件路径] : 移动一个文件到另一个文件;
+        mv -r [源目录路径] [目标目录路径] : 移动一个目录到另一个目录;
+        */
+        if (CMD_Index[0] == "mv") {
+            if (CMD_Index[1] == "-r") {
+                FFileS.copyDir(CMD_Index[2], CMD_Index[3], true);
+            } else {
+                FFileS.copyFile(CMD_Index[1], CMD_Index[2], true);
+            }
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
+        }
 
-            note: 点亮红灯和绿灯会触发下载模式进而导致复位, 因此我们要先禁用下载模式;
-            */
-            if (CMD_Index[0] == "led") {
-                if (CMD_Index[2] == "1" || CMD_Index[2] == "true" || CMD_Index[2] == "enable") {
-                    if (CMD_Index[1] == "r") {
-                        allowDownloadMode = false;  // 禁用下载模式;
-                        alert.LED_R_Enable(0, true);
-                    } else if (CMD_Index[1] == "g") {
-                        allowDownloadMode = false;  // 禁用下载模式;
-                        alert.LED_G_Enable(0, true);
-                    } else if (CMD_Index[1] == "b") {
-                        alert.LED_B_Enable(0, true);
-                    }
-                } else if (CMD_Index[2] == "0" || CMD_Index[2] == "false" || CMD_Index[2] == "disable") {
-                    if (CMD_Index[1] == "r") {
-                        alert.LED_R_Enable(0, false);
-                        allowDownloadMode = true;  // 启用下载模式;
-                    } else if (CMD_Index[1] == "g") {
-                        alert.LED_G_Enable(0, false);
-                        allowDownloadMode = true;  // 启用下载模式;
-                    } else if (CMD_Index[1] == "b") {
-                        alert.LED_B_Enable(0, false);
-                    }
+        /*
+        {查找指定目录下的文件(包含子目录的文件)}find [dirPath] [fileName] : 在dirPath目录下按文件名查找文件;
+        [fileName] = *.* : 查找所有文件;
+        [fileName] = *.txt : 查找所有扩展名为txt的文件;
+        [fileName] = a.txt : 查找a.txt文件;
+        */
+        if (CMD_Index[0] == "find") {
+            // 检查字符串 CMD_Index[1] 的最后一个字符是否是斜杠"/", 如果不是，就在字符串末尾添加一个斜杠。
+            if (CMD_Index[1].charAt(CMD_Index[1].length() - 1) != '/') CMD_Index[1] += '/';
+
+            String foundFile = FFileS.findFiles(CMD_Index[1], CMD_Index[2]);
+            CMDCP_Response(foundFile);
+        }
+
+        //{显示操作系统版本信息}osinfo
+        if (CMD_Index[0] == "osinfo") {
+            CMDCP_Response(GSG3_Os_Info);
+
+            oled.OLED_DrawBMP(0, 0, 128, 48, GasSensorGen3OS_Info);  // 显示 GasSensorGen3OS_Info;
+        }
+
+        //{立刻重新启动MCU}reboot
+        if (CMD_Index[0] == "reboot") {
+            digitalWrite(RST, LOW);  // MCU复位;
+            CMDCP_Response("");      // 空响应(该指令无响应内容);
+        }
+
+        //{打印主要GPIO引脚的状态(Print GPIO status)}pios
+        if (CMD_Index[0] == "pios") {
+            CMDCP_Response(SysSleep.GPIO_Read());
+        }
+
+        //{打印主要系统状态(Print System status)}pss
+        if (CMD_Index[0] == "pss") {
+            CMDCP_Response(SysSleep.getSysModeAndStatus());
+        }
+
+        /*
+        {点亮板载的RGBLED}LED [color] [state]
+        led r 1/true/enable : 点亮红色的LED
+        led g 1/true/enable : 点亮绿色的LED
+        led b 1/true/enable : 点亮蓝色的LED
+        led r 0/false/disable : 熄灭红色的LED
+        led g 0/false/disable : 熄灭绿色的LED
+        led b 0/false/disable : 熄灭蓝色的LED
+
+        note: 点亮红灯和绿灯会触发下载模式进而导致复位, 因此我们要先禁用下载模式;
+        */
+        if (CMD_Index[0] == "led") {
+            if (CMD_Index[2] == "1" || CMD_Index[2] == "true" || CMD_Index[2] == "enable") {
+                if (CMD_Index[1] == "r") {
+                    allowDownloadMode = false;  // 禁用下载模式;
+                    alert.LED_R_Enable(0, true);
+                } else if (CMD_Index[1] == "g") {
+                    allowDownloadMode = false;  // 禁用下载模式;
+                    alert.LED_G_Enable(0, true);
+                } else if (CMD_Index[1] == "b") {
+                    alert.LED_B_Enable(0, true);
                 }
-                CMDCP_Response("");  // 空响应(该指令无响应内容);
-            }
-
-            /*
-            {打开蜂鸣器}buzz [state]
-            state = 1/true/enable : 打开蜂鸣器
-            state = 0/false/disable : 关闭蜂鸣器
-            */
-            if (CMD_Index[0] == "buzz") {
-                if (CMD_Index[1] == "1" || CMD_Index[1] == "true" || CMD_Index[1] == "enable") {
-                    alert.BUZZER_Enable(0, true);  // 打开蜂鸣器
-                } else if (CMD_Index[1] == "0" || CMD_Index[1] == "false" || CMD_Index[1] == "disable") {
-                    alert.BUZZER_Enable(0, false);  // 关闭蜂鸣器
-                }
-                CMDCP_Response("");  // 空响应(该指令无响应内容);
-            }
-
-            //{关闭所有声光警报(Alert disable)}alertdis
-            if (CMD_Index[0] == "alertdis") {
-                alert.ALERT_Disable();  // 关闭所有声光警报;
-                CMDCP_Response("");     // 空响应(该指令无响应内容);
-            }
-
-            /*
-            {浅休眠模式}freeze [enable]
-            [休眠模式-freeze], 冻结I/O设备, 关闭外设, ESP-12F进入Modem-sleep模式, 程序上只运行CMDControlPanel网络服务, 其他服务冻结;
-            freeze 1/true/enable : 进入浅度休眠模式;
-            freeze 0/false/disable : 离开浅度休眠模式;
-            */
-            if (CMD_Index[0] == "freeze") {
-                if (CMD_Index[1] == "1" || CMD_Index[1] == "true" || CMD_Index[1] == "enable") {
-                    SysSleep.Sys_freezeMode(true);
-                } else if (CMD_Index[1] == "0" || CMD_Index[1] == "false" || CMD_Index[1] == "disable") {
-                    SysSleep.Sys_freezeMode(false);
-                }
-                CMDCP_Response("");  // 空响应(该指令无响应内容);
-            }
-
-            /*
-            {深度睡眠模式}disk [time_us]
-            [深度休眠模式-disk] 运行状态(GPIO_Status, 系统模式和状态, 文本框信息)数据存到Flash(醒来时恢复状态), 然后ESP12F进入深度睡眠;
-            time_us(微秒) = 0 : 无限期进入深度睡眠, 只有手动按RST复位才能恢复;
-            */
-            if (CMD_Index[0] == "disk") {
-                if (CMD_Index[1].toInt() != 0) SysSleep.Sys_diskMode(CMD_Index[1].toInt());
-                CMDCP_Response("");  // 空响应(该指令无响应内容);
-            }
-
-            /*
-            {显示历史执行过的命令}history [-options]
-            history -s : (history -sleep)显示深度睡眠前执行过的命令;
-            history -c : (history -clear)清空所有的命令历史记录;
-            */
-            if (CMD_Index[0] == "history") {
-                if (CMD_Index[1] == "-s") {
-                } else if (CMD_Index[1] == "-c") {
+            } else if (CMD_Index[2] == "0" || CMD_Index[2] == "false" || CMD_Index[2] == "disable") {
+                if (CMD_Index[1] == "r") {
+                    alert.LED_R_Enable(0, false);
+                    allowDownloadMode = true;  // 启用下载模式;
+                } else if (CMD_Index[1] == "g") {
+                    alert.LED_G_Enable(0, false);
+                    allowDownloadMode = true;  // 启用下载模式;
+                } else if (CMD_Index[1] == "b") {
+                    alert.LED_B_Enable(0, false);
                 }
             }
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
+        }
 
-            //{清空控制台同时释放内存}clear
-            if (CMD_Index[0] == "clear") {
-                oled.clearTextBox();
-                CMDCP_Response("");  // 空响应(该指令无响应内容);
+        /*
+        {打开蜂鸣器}buzz [state]
+        state = 1/true/enable : 打开蜂鸣器
+        state = 0/false/disable : 关闭蜂鸣器
+        */
+        if (CMD_Index[0] == "buzz") {
+            if (CMD_Index[1] == "1" || CMD_Index[1] == "true" || CMD_Index[1] == "enable") {
+                alert.BUZZER_Enable(0, true);  // 打开蜂鸣器
+            } else if (CMD_Index[1] == "0" || CMD_Index[1] == "false" || CMD_Index[1] == "disable") {
+                alert.BUZZER_Enable(0, false);  // 关闭蜂鸣器
             }
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
+        }
 
-            //{显示Flash信息(disk free)}df
-            if (CMD_Index[0] == "df") {
-                String Flash_Info = FFileS.getFlash_info();
-                CMDCP_Response(Flash_Info);
+        //{关闭所有声光警报(Alert disable)}alertdis
+        if (CMD_Index[0] == "alertdis") {
+            alert.ALERT_Disable();  // 关闭所有声光警报;
+            CMDCP_Response("");     // 空响应(该指令无响应内容);
+        }
+
+        /*
+        {浅休眠模式}freeze [enable]
+        [休眠模式-freeze], 冻结I/O设备, 关闭外设, ESP-12F进入Modem-sleep模式, 程序上只运行CMDControlPanel网络服务, 其他服务冻结;
+        freeze 1/true/enable : 进入浅度休眠模式;
+        freeze 0/false/disable : 离开浅度休眠模式;
+        */
+        if (CMD_Index[0] == "freeze") {
+            if (CMD_Index[1] == "1" || CMD_Index[1] == "true" || CMD_Index[1] == "enable") {
+                SysSleep.Sys_freezeMode(true);
+            } else if (CMD_Index[1] == "0" || CMD_Index[1] == "false" || CMD_Index[1] == "disable") {
+                SysSleep.Sys_freezeMode(false);
             }
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
+        }
 
-            // {显示剩余内存}free
-            if (CMD_Index[0] == "free") {
-                String FreeHeap = "FreeRAM: " + String(ESP.getFreeHeap()) + " Byte";
-                CMDCP_Response(FreeHeap);
+        /*
+        {深度睡眠模式}disk [time_us]
+        [深度休眠模式-disk] 运行状态(GPIO_Status, 系统模式和状态, 文本框信息)数据存到Flash(醒来时恢复状态), 然后ESP12F进入深度睡眠;
+        time_us(微秒) = 0 : 无限期进入深度睡眠, 只有手动按RST复位才能恢复;
+        */
+        if (CMD_Index[0] == "disk") {
+            if (CMD_Index[1].toInt() != 0) SysSleep.Sys_diskMode(CMD_Index[1].toInt());
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
+        }
+
+        /*
+        {显示历史执行过的命令}history [-options]
+        history -s : (history -sleep)显示深度睡眠前执行过的命令;
+        history -c : (history -clear)清空所有的命令历史记录;
+        */
+        if (CMD_Index[0] == "history") {
+            if (CMD_Index[1] == "-s") {
+                CMDCP_Response(FFileS.readFile("", "/SleepFile/PrintBox.txt"));
+            } else if (CMD_Index[1] == "-c") {
+                FFileS.removeFile("", "/CMD_History.txt");
+                CMDCP_Response("");
+            } else {
+                CMDCP_Response(FFileS.readFile("", "/CMD_History.txt"));
             }
+        }
 
-            //{登出CMDCP, 此操作将锁定CMDCP}logout
-            if (CMD_Index[0] == "logout") {
+        // {查看当前登入主机的用户终端IP}who
+        if (CMD_Index[0] == "who") {
+            String who = "";
+            for (auto& i : clientLogedIP) who += (i + "\n");
+            CMDCP_Response(who);
+        }
+
+        /*
+        {查看所有系统登录记录}last [-options];
+        last : 查看所有系统登录记录;
+        last -c : 清空登录记录;
+        */
+        if (CMD_Index[0] == "last") {
+            if (CMD_Index[1] == "-c") {
+                FFileS.removeFile("", "/CMD_Logged_Info.txt");
+                CMDCP_Response("");
+            } else {
+                CMDCP_Response(FFileS.readFile("", "/CMD_Logged_Info.txt"));
+            }
+        }
+
+        //{显示系统时间}date
+        if (CMD_Index[0] == "date") {
+            CMDCP_Response(timeRef.timeRead(false));
+        }
+
+        //{清空控制台同时释放内存}clear
+        if (CMD_Index[0] == "clear") {
+            oled.clearTextBox();
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
+        }
+
+        //{显示Flash信息(disk free)}df
+        if (CMD_Index[0] == "df") {
+            String Flash_Info = FFileS.getFlash_info();
+            CMDCP_Response(Flash_Info);
+        }
+
+        // {显示剩余内存}free
+        if (CMD_Index[0] == "free") {
+            String FreeHeap = "FreeRAM: " + String(ESP.getFreeHeap()) + " Byte";
+            CMDCP_Response(FreeHeap);
+        }
+
+        //{关闭电源(并不会真的关闭电源, 只是无限期的深度休眠)}poweroff
+        if (CMD_Index[0] == "poweroff") {
+            SysSleep.Sys_diskMode(0);
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
+        }
+
+        //{登出CMDCP, 此操作将锁定CMDCP}logout
+        if (CMD_Index[0] == "logout") {
+            // 获取登出用户的IP地址;
+            String clientLogoutIP = server.client().remoteIP().toString();
+            // 将该用户的IP从已登录并且正在使用还未登出CMD用户的IP地址中删除(即注销该用户的IP, 标记为未登录状态);
+            clientLogedIP.erase(remove(clientLogedIP.begin(), clientLogedIP.end(), clientLogoutIP), clientLogedIP.end());
+            // 在上面的代码中，remove 函数在 vector 中删除所有与 clientLogoutIP 字符串相等的字符串，erase 函数删除 vector 中剩余的空元素。
+
+            /*记录用户的登出时间和IP地址*/
+            LittleFS.begin();                                                                   // 启动闪存文件系统
+            File cmdLoggedInfo = LittleFS.open("/CMD_Logged_Info.txt", "a");                    // 打开CMD_Logged_Info.txt追加日志;
+            cmdLoggedInfo.print(clientLogoutIP + "-" + timeRef.timeRead(false) + "-logout\n");  // IP地址+时间+登出记录;
+            cmdLoggedInfo.close();
+
+            // 只有clientLogedIP为空时(所有用户都登出)才回到桌面;
+            if (clientLogedIP.empty() == true) {
+                CMDCP_State = false;             // 用户关闭CMDCP;
                 LockerState = false;             // 锁定CMDCP;
                 Developer_Mode = false;          // 退出开发者模式(显示状态栏和桌面时钟);
                 oled.setTextBox(0, 0, 128, 48);  // 设置文本框使其不遮挡状态栏;
                 oled.OLED_Clear();               // 清空OLED屏幕;
-                timeRef.allow = true;            // 授予获取网络时间许可证(重新刷新桌面时间);
-                CMDCP_Response("");              // 空响应(该指令无响应内容);
+                Desktop.Main_Desktop();          // 刷新桌面时钟;
             }
 
-            CMD = "";  // 清空命令;
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
         }
+
+        CMD = "";  // 清空命令;
     }
 } CMDCP;
 
@@ -1428,7 +1523,10 @@ class WebServer {
         if (WiFi.status() != WL_CONNECTED) {
             WIFI_State = false;
 
-            WiFi.begin(SSID, PASSWORD);
+            // 读取WIFI_Config.ini文件(保存了WIFI名称和密码), 以<SSID\PASSWD>分割字符串;
+            vector<String> SSID_PASSWD = oled.strsplit(FFileS.readFile("", "/WIFI_Config.ini"), "<SSID/PASSWD>");
+
+            WiFi.begin(SSID_PASSWD[0], SSID_PASSWD[1]);
             // 等待WIFI连接(超时时间为10s);
             for (unsigned char i = 0; i < 100; ++i) {
                 if (WiFi.status() == WL_CONNECTED) {

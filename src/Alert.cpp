@@ -77,8 +77,8 @@ void ALERT::flashWriteAlertLog(String alertLog) {
         dataFile = LittleFS.open(alertFlashFile, "w");  // 建立File对象用于向LittleFS中的file对象写入信息(新建&覆盖);
     }
 
-    dataFile.println(alertLog);  // 向dataFile写入字符串信息
-    dataFile.close();            // 完成文件写入后关闭文件
+    dataFile.print(alertLog);  // 向dataFile写入字符串信息
+    dataFile.close();          // 完成文件写入后关闭文件
 }
 
 void ALERT::flashReadAlertLog() {

@@ -396,7 +396,7 @@ vector<String> OLED::strsplit(String input, String separator) {
         unsigned int splitIndex = input.indexOf(separator);
         String segment = input.substring(0, splitIndex);
         vecStr.push_back(segment);
-        input = input.substring(splitIndex + 1);
+        input = input.substring(splitIndex + separator.length());
     }
     vecStr.push_back(input);
     return vecStr;
@@ -405,7 +405,7 @@ vector<String> OLED::strsplit(String input, String separator) {
 
     这个函数首先使用 while 循环来检查输入字符串中是否存在 "separator"，如果存在，则使用 "input.indexOf(separator)" 方法来找到 "separator"
     第一次出现的位置，然后使用 "input.substring(0, splitIndex)" 方法来截取从 0 到 "splitIndex" 位置的字符串，将截取的字符串存储在 vector 容器 "vecStr"
-    中。接着，使用 "input = input.substring(splitIndex + 1);" 更新输入字符串，以便在下一次循环中继续查找 "separator"。
+    中。接着，使用 "input = input.substring(splitIndex + 分割字符的长度);" 更新输入字符串，以便在下一次循环中继续查找 "separator"。
 
     当循环结束后，将剩余的字符串 "input" 添加到 vector 容器 "vecStr" 中，并返回该容器。
     */
