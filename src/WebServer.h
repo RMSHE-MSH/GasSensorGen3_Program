@@ -2,6 +2,53 @@
 #define __WEBSERVER_H
 #include <avr/pgmspace.h>
 
+// 用于打印的操作系统信息;
+const char GSG3_Os_Info[] PROGMEM = {
+    "GasSensorGen3 OS\nBuild: GS.20230130.Mark0\nUpdate: github.com/RMSHE-MSH\nHardware: GS.Gen3.20230110.Mark1\nPowered by "
+    "RMSHE\nE-mail: asdfghjkl851@outlook.com"};
+
+// CMDControlPanel帮助信息;
+const char CMDCP_HELP[] PROGMEM = {
+    "GasSenserOS RMSHE >> CMDControlPanel help"
+    "\n1. pwd : Print work directory."
+    "\n2. ls : List work directory files."
+    "\n3. cd [dirName] : Change work directory."
+    "\n4. cat [fileName] : Open the file in the work directory."
+    "\n5. touch [fileName] : Create an empty file in the work directory."
+    "\n6. mkdir [dirName] : Create a directory under the work directory."
+    "\n7. echo [string] : Printed to the CMD."
+    "\n8. echo [string] > [fileName] : Overwrite the file in the work directory."
+    "\n9. echo [string] >> [fileName] : Append to the file in the work directory."
+    "\n10. rm [fileName] : Remove files in the work directory."
+    "\n11. rm -r [dirName] : Remove the directory under the work directory."
+    "\n12. cp [sourceFilePath] [targetFilePath] : Copy file."
+    "\n13. cp -r [sourceDirPath] [targetDirPath] : Copy directory."
+    "\n14. mv [sourceFilePath] [targetFilePath] : Move file."
+    "\n15. mv -r [sourceDirPath] [targetDirPath] : Move directory."
+    "\n16. find [dirPath] [fileName] : Find files in the directory, fileName example = (*.*/*.txt/a.txt)."
+    "\n17. osinfo : Display operating system version information."
+    "\n18. reboot : MCU reset."
+    "\n19. pios : Print GPIO status."
+    "\n20. pss : Print System status."
+    "\n21. led [color] [state] : Turn on RGB LED, color = (r/g/b), state = ((1/true/enable), (0/false/disable))."
+    "\n22. buzz [state] : Turn on BUZZER, state = ((1/true/enable), (0/false/disable))."
+    "\n23. alertdis : Alert disable."
+    "\n24. freeze [enable] : Light sleep, enable = ((1/true/enable), (0/false/disable))."
+    "\n25. disk [time_us] : Deep sleep, time_us = (1 to 4294967295 Microsecond)."
+    "\n26. history : Show command history."
+    "\n27. history -s : Display commands executed before deep sleep."
+    "\n28. history -c : Remove command history."
+    "\n29. who : View the IP address of the user terminal logged into the current host."
+    "\n30. last : View system login logs."
+    "\n31. last -c : Remove system login logs."
+    "\n32. date : Display system time."
+    "\n33. clear : Clear console and free memory."
+    "\n34. df : Display Flash information."
+    "\n35. free : Display remaining RAM."
+    "\n36. wifi [SSID] [PASSWORD] : Configure WIFI connection, set WIFI SSID and PASSWORD."
+    "\n37. poweroff : Indefinite deep sleep."
+    "\n38. logout : Log out and lock the CMDCP."};
+
 const char CMDCP_Online[] PROGMEM = R"rawliteral(
 
 <!DOCTYPE html>

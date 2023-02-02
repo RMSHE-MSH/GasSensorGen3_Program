@@ -967,11 +967,6 @@ class CMDControlPanel {
     String CMDCP_Online_Response = "";  // 临时储存CMD的响应数据;
     vector<String> clientLogedIP;       // 这里储存了已登录并且正在使用还未登出CMD用户的IP地址(登出时删除IP);
 
-    // 用于打印的操作系统信息;
-    String GSG3_Os_Info =
-        "GasSensorGen3 OS\nBuild: GS.20230130.Mark0\nUpdate: github.com/RMSHE-MSH\nHardware: GS.Gen3.20230110.Mark1\nPowered by "
-        "RMSHE\nE-mail: asdfghjkl851@outlook.com";
-
     // 使用CMDControlPanel前需要输入密码(无密码会要求用户设置密码, 密码正确返回true, 密码错误返回false);
     bool PassLocker() {
         allowResponse = false;  // 禁止服务器对客户端进行响应;
@@ -1174,12 +1169,17 @@ class CMDControlPanel {
         // 以空格分割字符串;
         vector<String> CMD_Index = oled.strsplit(CMD, " ");
 
+        // {CMDCP指令帮助}help
+        if (CMD_Index[0] == "help") {
+            CMDCP_Response(CMDCP_HELP);
+        }
+
         //{显示当前工作目录(print work directory)}pwd
         if (CMD_Index[0] == "pwd") {
             CMDCP_Response(FFileS.getWorkDirectory());
         }
 
-        // {显示工作目录下的内容(List files)}ls
+        // {显示工作目录下的文件列表(List files)}ls
         if (CMD_Index[0] == "ls") {
             String listDirectory = FFileS.listDirectoryContents();
             CMDCP_Response(listDirectory);
@@ -1209,22 +1209,22 @@ class CMDControlPanel {
             CMDCP_Response(File_Info);
         }
 
-        // {在工作目录下创建文件}touch [fileName]
+        // {在工作目录下创建空文件}touch [fileName]
         if (CMD_Index[0] == "touch") {
             FFileS.createFile(CMD_Index[1]);
             CMDCP_Response("");  // 空响应(该指令无响应内容);
         }
 
-        // {在工作目录下新建文件夹(Make Directory)}mkdir dirName
+        // {在工作目录下新建文件夹(Make Directory)}mkdir [dirName]
         if (CMD_Index[0] == "mkdir") {
             FFileS.makeDirector(CMD_Index[1]);
             CMDCP_Response("");  // 空响应(该指令无响应内容);
         }
 
         /*
-        echo [string] ：内容打印到控制台
-        echo [string] > [fileName] ：将内容直接覆盖到文件中
-        echo [string] >> [fileName] ：将内容追加到文件中
+        echo [string] ：内容打印到控制台;
+        echo [string] > [fileName] ：将内容直接覆盖到工作目录的文件中;
+        echo [string] >> [fileName] ：将内容追加到工作目录的文件中;
         */
         if (CMD_Index[0] == "echo") {
             if (CMD_Index[2] == ">") {
@@ -1318,7 +1318,7 @@ class CMDControlPanel {
         }
 
         /*
-        {点亮板载的RGBLED}LED [color] [state]
+        {点亮板载的RGBLED}led [color] [state]
         led r 1/true/enable : 点亮红色的LED
         led g 1/true/enable : 点亮绿色的LED
         led b 1/true/enable : 点亮蓝色的LED
@@ -1400,6 +1400,7 @@ class CMDControlPanel {
 
         /*
         {显示历史执行过的命令}history [-options]
+        history : 显示历史执行过的命令;
         history -s : (history -sleep)显示深度睡眠前执行过的命令;
         history -c : (history -clear)清空所有的命令历史记录;
         */
@@ -1456,6 +1457,12 @@ class CMDControlPanel {
         if (CMD_Index[0] == "free") {
             String FreeHeap = "FreeRAM: " + String(ESP.getFreeHeap()) + " Byte";
             CMDCP_Response(FreeHeap);
+        }
+
+        // {配置WIFI连接, 设置WIFI名称和密码}wifi [SSID] [PASSWORD]
+        if (CMD_Index[0] == "wifi") {
+            FFileS.fileCover(CMD_Index[1] + "<SSID/PASSWD>" + CMD_Index[2], "", "/WIFI_Config.ini");
+            CMDCP_Response("");
         }
 
         //{关闭电源(并不会真的关闭电源, 只是无限期的深度休眠)}poweroff
@@ -1523,7 +1530,7 @@ class WebServer {
         if (WiFi.status() != WL_CONNECTED) {
             WIFI_State = false;
 
-            // 读取WIFI_Config.ini文件(保存了WIFI名称和密码), 以<SSID\PASSWD>分割字符串;
+            // 读取WIFI_Config.ini文件(保存了WIFI名称和密码), 以<SSID/PASSWD>分割字符串;
             vector<String> SSID_PASSWD = oled.strsplit(FFileS.readFile("", "/WIFI_Config.ini"), "<SSID/PASSWD>");
 
             WiFi.begin(SSID_PASSWD[0], SSID_PASSWD[1]);
