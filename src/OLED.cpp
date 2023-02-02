@@ -551,6 +551,12 @@ void OLED::clearTextBox() {
     First_Line = 0;  // 首行位置设为0;
 };
 
+// 获取文本框的全部文本;
+vector<String> OLED::getPrintBox() { return PrintBox; }
+
+// 用一个新的PrintBox结构的数据替换掉现有的PrintBox(要求保证数据结构正确);
+void OLED::replacePrintBox(vector<String> newPrintBox) { PrintBox = newPrintBox; }
+
 // 移动滚动条(true:向下滚动, falas:向上滚动);
 void OLED::moveScrollBar(bool direction) {
     if (direction == true && (First_Line + Hight_MaxNumChar) < PrintBox.size()) {

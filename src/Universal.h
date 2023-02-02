@@ -38,6 +38,10 @@
 #define SDA 4
 #define SCL 5
 
+// 串口管脚定义;
+#define TXD 1
+#define RXD 3
+
 // 电池状态引脚定义;
 #define CHRG 14
 

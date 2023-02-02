@@ -18,13 +18,19 @@ HTTPClient http;
 WiFiClient client;
 TOOL tool;
 Ticker TimeRefresh_ticker;
-Ticker StatusBars_ticker;
+Ticker System_time;
+Ticker Desktop_ticker;
 Ticker CMDControlPanel_ticker;
+Ticker WIFI_Test;  // 用于检测WIFI是否连接;
 
-bool Charging_State = false;  // 充电状态(0:没在充电; 1:正在充电);
-bool WIFI_State = false;      // WIFI状态(0:断网; 1:联网);
-bool Developer_Mode = false;  // 开发者模式(0:常规运行; 1:进入开发者模式);
-bool allowResponse = true;    // true:允许服务器对客户端进行响应;
+//[System Mode&Status(系统模式和状态)]
+bool Charging_State = false;    // 充电状态(0:没在充电; 1:正在充电);
+bool WIFI_State = false;        // WIFI状态(0:断网; 1:联网);
+bool Developer_Mode = false;    // 开发者模式(0:常规运行; 1:进入开发者模式);
+bool allowResponse = true;      // true:允许服务器对客户端进行响应;
+bool allowDownloadMode = true;  // true:允许进入下载模式;
+bool freezeMode = false;  //[浅度休眠模式-freeze], 冻结I/O设备, 关闭外设, ESP-12F进入Modem-sleep模式, 程序上只运行CMDControlPanel网络服务, 其他服务冻结;
+bool diskMode = false;  //[深度休眠模式-disk] 运行状态(GPIO_Status, 系统模式和状态, 文本框信息)数据存到Flash(醒来时恢复状态), 然后ESP12F进入深度睡眠;
 
 class FlashFileSystem {
    private:
@@ -243,10 +249,14 @@ class FlashFileSystem {
         LittleFS.mkdir(path.c_str());  // 创建目录;
     }
 
-    // 删除文件(工作目录下的文件名);
-    bool removeFile(String fileName) {
-        // 文件路径 = 工作路径 + 文件名;
-        String path = WorkingDirectory + fileName;
+    // 删除文件(工作目录下的文件名, 或直接指定文件路径[指定文件路径后工作目录下的文件名就无效了]);
+    bool removeFile(String fileName, String filePath = "") {
+        String path;
+        // 如果直接指定文件路径就优先使用文件路径(filePath是用来方便给系统内部调用的);
+        if (filePath == "")
+            path = WorkingDirectory + fileName;  // 文件路径 = 工作路径 + 文件名(CMD调用);
+        else
+            path = filePath;  // 优先使用(系统API调用);
 
         LittleFS.begin();  // 启动闪存文件系统
 
@@ -258,10 +268,14 @@ class FlashFileSystem {
         }
     }
 
-    // 删除文件夹(工作目录下的文件夹名);
-    void removeDirector(String dirName) {
-        // 文件路径 = 工作路径 + 目录名;
-        String path = WorkingDirectory + dirName;
+    // 删除文件夹(工作目录下的文件夹名, 或直接指定文件路径[指定文件路径后工作目录下的文件名就无效了]);
+    void removeDirector(String dirName, String dirPath = "") {
+        String path;
+        // 如果直接指定文件路径就优先使用文件路径(filePath是用来方便给系统内部调用的);
+        if (dirPath == "")
+            path = WorkingDirectory + dirName;  // 文件路径 = 工作路径 + 文件名(CMD调用);
+        else
+            path = dirPath;  // 优先使用(系统API调用);
 
         LittleFS.begin();  // 启动闪存文件系统
 
@@ -378,63 +392,125 @@ class FlashFileSystem {
 
 // 时间控制类;
 class TimeRefresh {
-   private:
-    // [0]-准许时间刷新标记(允许从网络获取时间);
-    // [1]-......
-    bool TimeRefreshMark[2] = {false, false};
-
-    String TimeStr_Temp = "";  // 临时储存时间;
-    String TimeFormat = "";    // 储存格式化后的时间;
-
    public:
-    uint8 allow = 0;  // 允许时间刷新;
+    // 系统的本地时间;
+    typedef struct SystemTime {
+        // Year Month Day Hour Minute Second
+        unsigned short year = 0;
+        unsigned char month = 0;
+        unsigned char day = 0;
+        unsigned char hour = 0;
+        unsigned char minute = 0;
+        unsigned char second = 0;
+
+        // 当前代码实现了对系统日期的更新;
+        void updateTime() {
+            second++;
+            if (second >= 60) {
+                second = 0;
+                minute++;
+            }
+            if (minute >= 60) {
+                minute = 0;
+                hour++;
+            }
+            if (hour >= 24) {
+                hour = 0;
+                day++;
+            }
+
+            unsigned char daysInMonth = 31;
+            if (month == 2) {
+                // 当month等于2时, 使用三目运算符，以计算当前年份是否为闰年。如果是闰年，则daysInMonth的值将设置为29；否则为28。
+                daysInMonth = (year % 400 == 0 || (year % 4 == 0 && year % 100 != 0)) ? 29 : 28;
+            } else if (month == 4 || month == 6 || month == 9 || month == 11) {
+                daysInMonth = 30;  // 对于4,6,9,11月只有30天,将daysInMonth的值设置为30;
+            }
+
+            // 如果天数大于当前月份的天数，代码将月份增加1，并在必要时将年份增加1;
+            if (day > daysInMonth) {
+                day = 1;
+                month++;
+                if (month > 12) {
+                    month = 1;
+                    year++;
+                }
+            }
+        }
+
+        // 解析网络时间的字符串, 并设置到系统时间;
+        void setSystemTime(String netWorkTimeStr) {
+            year = static_cast<unsigned short>(netWorkTimeStr.substring(0, 4).toInt());
+            month = static_cast<unsigned char>(netWorkTimeStr.substring(4, 6).toInt());
+            day = static_cast<unsigned char>(netWorkTimeStr.substring(6, 8).toInt());
+            hour = static_cast<unsigned char>(netWorkTimeStr.substring(8, 10).toInt());
+            minute = static_cast<unsigned char>(netWorkTimeStr.substring(10, 12).toInt());
+            second = static_cast<unsigned char>(netWorkTimeStr.substring(12, 14).toInt());
+        }
+
+    } SystemTime;
+
+    SystemTime sysTime;
+    String netWorkTimeStr = "";  // 储存从网络获取的时间(20230202135512);
+
+    bool allow = false;  // 允许时间刷新;
+
+    // 用于更新时间;
+    void begin() {
+        // 不触发警报的条件下每隔10min同步一次网络时间(多线程);
+        TimeRefresh_ticker.attach(600, [this](void) -> void {
+            // 如果系统进入freezeMode(浅度睡眠)停止定时调用函数;
+            if (freezeMode == true) TimeRefresh_ticker.detach();
+
+            if (digitalRead(SENOUT) == HIGH) allow = true;  // 授予获取网络时间许可证;
+        });
+
+        // 每隔1s更新一次系统本地日期和时间;
+        System_time.attach(1, [this](void) -> void { sysTime.updateTime(); });
+    }
 
     // 从授时网站获得时间
     void getNetWorkTime() {
         uint8 httpCode = http.GET();
         if (httpCode > 0) {
             if (httpCode == HTTP_CODE_OK) {
-                TimeStr_Temp = http.getString();  // 获取JSON字符串
+                netWorkTimeStr = http.getString();  // 获取JSON字符串
 
                 // 解析JSON数据
-                StaticJsonDocument<200> doc;         // 创建一个StaticJsonDocument对象
-                deserializeJson(doc, TimeStr_Temp);  // 使用deserializeJson()函数来解析Json数据
+                StaticJsonDocument<200> doc;           // 创建一个StaticJsonDocument对象
+                deserializeJson(doc, netWorkTimeStr);  // 使用deserializeJson()函数来解析Json数据
 
-                TimeStr_Temp = doc["sysTime1"].as<String>();  // 读取JSON数据;
-                netWorkTimeFormat();                          // 格式化网络时间(小时:分钟);
+                netWorkTimeStr = doc["sysTime1"].as<String>();  // 读取JSON数据;
 
-                // Serial.println(TimeStr_Temp);
+                sysTime.setSystemTime(netWorkTimeStr);  // 解析网络时间的字符串, 并设置到系统时间;
+
+                // Serial.println(netWorkTimeStr);
             } else {
-                TimeFormat = "e.TGF";  // 错误代码(error: Time Get Failed);
                 Serial.printf("[HTTP GET Failed] ErrorCode: %s\n", http.errorToString(httpCode).c_str());
             }
         } else {
-            TimeFormat = "e.TGF";  // 错误代码(error: Time Get Failed);
             Serial.printf("[HTTP GET Failed] ErrorCode: %s\n", http.errorToString(httpCode).c_str());
         }
         http.end();
     }
 
-    // 格式化网络时间;
-    void netWorkTimeFormat() {
-        // 获取小时和分钟;
-        // 添加":"分割小时和分钟;
-        TimeFormat = (TimeStr_Temp.substring(TimeStr_Temp.length() - 6, TimeStr_Temp.length()));
-        TimeFormat = (TimeFormat.substring(0, 2) + ":" + TimeFormat.substring(2, TimeFormat.length() - 2));
+    // 格式化时间(在个位数前添加0; 例如: 1 -> 01);
+    String format(unsigned char timeInt) {
+        if (timeInt < 10) {
+            return "0" + String(timeInt);
+        } else {
+            return String(timeInt);
+        }
     }
 
-    // 获取间刷新标记(MarkName: allow/begin);
-    bool getTimeRefreshMark(uint8 MarkName = 0) { return TimeRefreshMark[MarkName]; }
-
-    // 设置时间刷新标记;
-    void setTimeRefreshMark(uint8 MarkName = 0, bool State = false) { TimeRefreshMark[MarkName] = State; }
-
-    // 读取时间(mode: true读取TimeFormat的时间[时分]; false读取TimeStr_Temp的时间[年月日时分秒]);
+    // 读取时间(mode: true读取netWorkTimeStr_Format的时间[时:分]; false读取netWorkTimeStr的时间[年月日时分秒]);
     String timeRead(bool mode = true) {
-        if (mode == true)
-            return TimeFormat;
-        else
-            return TimeStr_Temp;
+        if (mode == true) {
+            return format(sysTime.hour) + ":" + format(sysTime.minute);
+        } else {
+            return String(sysTime.year) + format(sysTime.month) + format(sysTime.day) + format(sysTime.hour) + format(sysTime.minute) +
+                   format(sysTime.second);
+        }
     }
 
 } timeRef;
@@ -527,40 +603,6 @@ class Animation {
     }
 } anim;
 
-//	WiFi的初始化和连接
-void WiFi_Connect() {
-    // 读取时间数据(从RAM)如果数据为"空"则表示系统正在启动, 否则表示系统正常运行时需要确认WIFI连接正常(两种情况播放的动画不同);
-    if (timeRef.timeRead() == "")
-        anim.setAnimation(67, 6);  // 设置动画播放位置(其他参数默认);
-    else
-        anim.setAnimation(112, 6);  // 设置动画播放位置(其他参数默认);
-
-    if (WiFi.status() != WL_CONNECTED) {
-        WIFI_State = false;
-
-        WiFi.begin(SSID, PASSWORD);
-        // 等待WIFI连接(超时时间为10s);
-        for (unsigned char i = 0; i < 100; ++i) {
-            if (WiFi.status() == WL_CONNECTED) {
-                Serial.print("IP Address: ");
-                Serial.print(WiFi.localIP());
-                Serial.println(":" + String(ServerPort));
-
-                WIFI_State = true;
-                break;
-            } else {
-                // 读取时间数据(从RAM)如果数据为"空"则表示系统正在启动, 否则表示系统正常运行时需要确认WIFI连接正常(两种情况播放的动画不同);
-                if (timeRef.timeRead() == "")
-                    anim.runAnimation(anim.loadingBar_60x8_30F);  // 播放进度条加载动画;
-                else
-                    anim.runAnimation(anim.loading_X16_60F);  // 播放加载动画;
-            }
-        }
-    } else {
-        WIFI_State = true;
-    }
-}
-
 // OLED显示消防预警;
 void ShowFireWarning() {
     oled.OLED_DrawBMP(0, 0, 32, 64, FireWarning_32x64[0]);
@@ -569,109 +611,117 @@ void ShowFireWarning() {
     oled.OLED_DrawBMP(96, 0, 32, 64, FireWarning_32x64[3]);
 }
 
-// 系统深度睡眠模式;
-void Sys_DeepSleep_Mode(uint64_t time_us = 0) {
-    // 关闭所有传感器(红外&气体),关闭OLED屏幕,关闭所有声光警报,切断除MCU外的一切供电;
-    digitalWrite(Decoder_C, HIGH);
-    digitalWrite(Decoder_B, HIGH);
-    digitalWrite(Decoder_A, LOW);
-    delay(100);
+class Desktop {
+   private:
+    // 任务栏图标排序表(储存了任务栏图标的动态显示位置);
+    typedef struct StatusBars_Ranked {
+        unsigned char unit = 16;  // 图标显示单位(16x16图标);
 
-    // MCU(ESP-12F)进入深度睡眠;
-    ESP.deepSleep(time_us);
-}
+        // 图标注册标记状态(true:注册; false:注销);
+        bool Register_State[8] = {false, false, false, false, false, false, false, false};
 
-// 任务栏图标排序表(储存了任务栏图标的动态显示位置);
-typedef struct StatusBars_Ranked {
-    unsigned char unit = 16;  // 图标显示单位(16x16图标);
+        // 动态储存图标位置(初始位置设为-16);
+        int StatusBars_Pos[8] = {-16, -16, -16, -16, -16, -16, -16, -16};
 
-    // 图标注册标记状态(true:注册; false:注销);
-    bool Register_State[8] = {false, false, false, false, false, false, false, false};
+        // 图标编号(对应oledfont.h中的编号);
+        unsigned char Clear_Icon = 5;
 
-    // 动态储存图标位置(初始位置设为-16);
-    int StatusBars_Pos[8] = {-16, -16, -16, -16, -16, -16, -16, -16};
+        unsigned char Charging = 0;
+        unsigned char WIFI = 1;
+        unsigned char ProgramDownload = 2;
+        unsigned char Disconnected = 3;
+        unsigned char Battery = 4;
+        //......
+    } StatusBars_Ranked;
+    StatusBars_Ranked SBR;
 
-    // 图标编号(对应oledfont.h中的编号);
-    unsigned char Clear_Icon = 5;
+    // 注册状态栏图标的位置(状态名称,模式[false:注销图标; true:注册图标]);
+    void Icon_Register(unsigned char name, bool mode) {
+        if (mode == false && SBR.Register_State[name] == true) {  // 在状态栏注销图标;
+            SBR.Register_State[name] = false;                     // 标记注销图标;
 
-    unsigned char Charging = 0;
-    unsigned char WIFI = 1;
-    unsigned char ProgramDownload = 2;
-    unsigned char Disconnected = 3;
-    unsigned char Battery = 4;
-    //......
-} StatusBars_Ranked;
-StatusBars_Ranked SBR;
+            // 遍历所有图标的位置,将注销图标右方的所有图标左移一个图标显示单位;
+            for (auto& i : SBR.StatusBars_Pos)
+                if (i > SBR.StatusBars_Pos[name]) i -= SBR.unit;
 
-// 注册状态栏图标的位置(状态名称,模式[false:注销图标; true:注册图标]);
-void Icon_Register(unsigned char name, bool mode) {
-    if (mode == false && SBR.Register_State[name] == true) {  // 在状态栏注销图标;
-        SBR.Register_State[name] = false;                     // 标记注销图标;
+            // 清空注销图标(包括注销图标)右方的区域;
+            for (unsigned char i = SBR.StatusBars_Pos[name]; i <= 112; i += SBR.unit) oled.OLED_DrawBMP(i, 6, 16, 16, StatusBars[SBR.Clear_Icon]);
 
-        // 遍历所有图标的位置,将注销图标右方的所有图标左移一个图标显示单位;
-        for (auto& i : SBR.StatusBars_Pos)
-            if (i > SBR.StatusBars_Pos[name]) i -= SBR.unit;
+            SBR.StatusBars_Pos[name] = 0;  // 将注销图标的位置归零;
 
-        // 清空注销图标(包括注销图标)右方的区域;
-        for (unsigned char i = SBR.StatusBars_Pos[name]; i <= 112; i += SBR.unit) oled.OLED_DrawBMP(i, 6, 16, 16, StatusBars[SBR.Clear_Icon]);
+        } else if (mode == true && SBR.Register_State[name] == false) {  // 在状态栏注册图标
+            SBR.Register_State[name] = true;                             // 标记注册图标;
 
-        SBR.StatusBars_Pos[name] = 0;  // 将注销图标的位置归零;
+            // 分配注册图标的位置: 注册图标的位置 = 所有图标位置的最大值 + 一个图标显示单位;
+            SBR.StatusBars_Pos[name] = tool.findArrMax(SBR.StatusBars_Pos, 8) + SBR.unit;
+        }
 
-    } else if (mode == true && SBR.Register_State[name] == false) {  // 在状态栏注册图标
-        SBR.Register_State[name] = true;                             // 标记注册图标;
-
-        // 分配注册图标的位置: 注册图标的位置 = 所有图标位置的最大值 + 一个图标显示单位;
-        SBR.StatusBars_Pos[name] = tool.findArrMax(SBR.StatusBars_Pos, 8) + SBR.unit;
+        if (mode == true) {
+            oled.OLED_DrawBMP(SBR.StatusBars_Pos[name], 6, 16, 16, StatusBars[name]);  // 显示图标;
+        }
     }
 
-    if (mode == true) {
-        oled.OLED_DrawBMP(SBR.StatusBars_Pos[name], 6, 16, 16, StatusBars[name]);  // 显示图标;
-    }
-}
+    // 渲染状态栏;
+    void StatusBars_Render() {
+        // 正在充电状态;
+        if (Charging_State == true) {
+            Icon_Register(SBR.Charging, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Charging, false);  // 注销图标位置;
+        }
 
-// 渲染状态栏;
-void StatusBars_Render() {
-    // 正在充电状态;
-    if (Charging_State == true) {
-        Icon_Register(SBR.Charging, true);  // 注册图标位置;
-    } else {
-        Icon_Register(SBR.Charging, false);  // 注销图标位置;
+        // WIFI连接状态;
+        if (WIFI_State == true) {
+            Icon_Register(SBR.WIFI, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.WIFI, false);  // 注销图标位置;
+        }
+
+        // 程序下载模式状态;
+        if (digitalRead(0) == LOW) {
+            Icon_Register(SBR.ProgramDownload, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.ProgramDownload, false);  // 注销图标位置;
+        }
+
+        // WIFI断开状态;
+        if (WIFI_State == false) {
+            Icon_Register(SBR.Disconnected, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Disconnected, false);  // 注销图标位置;
+        }
+
+        /// 停止充电状态;
+        if (Charging_State == false) {
+            Icon_Register(SBR.Battery, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Battery, false);  // 注销图标位置;
+        }
     }
 
-    // WIFI连接状态;
-    if (WIFI_State == true) {
-        Icon_Register(SBR.WIFI, true);  // 注册图标位置;
-    } else {
-        Icon_Register(SBR.WIFI, false);  // 注销图标位置;
+   public:
+    void begin() {
+        // 不触发警报的条件下每隔500ms刷新一次状态栏(多线程);
+        Desktop_ticker.attach_ms(500, [this](void) -> void {
+            // 如果系统进入freezeMode(浅度睡眠)停止定时调用函数;
+            if (freezeMode == true) Desktop_ticker.detach();
+
+            // 如果处于开发者模式则停止刷新状态栏;
+            if (digitalRead(SENOUT) == HIGH && Developer_Mode == false) {
+                // 如果每分钟中秒数走到0(即开头)则刷新一次桌面时钟;
+                if (timeRef.sysTime.second == 0) oled.OLED_ShowString(4, -1, timeRef.timeRead().c_str(), 49);  // 刷新时间;
+
+                StatusBars_Render();  // 刷新状态栏;
+            }
+        });
     }
 
-    // 程序下载模式状态;
-    if (digitalRead(0) == LOW) {
-        Icon_Register(SBR.ProgramDownload, true);  // 注册图标位置;
-    } else {
-        Icon_Register(SBR.ProgramDownload, false);  // 注销图标位置;
+    // 渲染主桌面;
+    void Main_Desktop() {
+        oled.OLED_ShowString(4, -1, timeRef.timeRead().c_str(), 49);  // 刷新时间;
+        StatusBars_Render();                                          // 渲染状态栏;
     }
-
-    // WIFI断开状态;
-    if (WIFI_State == false) {
-        Icon_Register(SBR.Disconnected, true);  // 注册图标位置;
-    } else {
-        Icon_Register(SBR.Disconnected, false);  // 注销图标位置;
-    }
-
-    /// 停止充电状态;
-    if (Charging_State == false) {
-        Icon_Register(SBR.Battery, true);  // 注册图标位置;
-    } else {
-        Icon_Register(SBR.Battery, false);  // 注销图标位置;
-    }
-}
-
-// 渲染主桌面;
-void Main_Desktop() {
-    oled.OLED_ShowString(4, -1, timeRef.timeRead().c_str(), 49);  // 刷新时间;
-    StatusBars_Render();                                          // 渲染状态栏;
-}
+} Desktop;
 
 // 判断电池是否进入充电并显示电池开始充电的信息;
 void Show_Charging_info() {
@@ -695,9 +745,10 @@ void Show_Charging_info() {
     }
 }
 
-// 程序下载模式(下载程序必须下拉GPIO0并且按复位, 期间可关闭MCU达到省电的目的);
+// 程序下载模式(下载程序必须下拉GPIO0并且复位);
 void ProgramDownloadMode() {
-    if (digitalRead(0) == LOW) {
+    // 条件: GPIO0下拉, 允许进入下载模式, 不处于浅度休眠模式;
+    if (digitalRead(Decoder_C) == LOW && allowDownloadMode == true && freezeMode == false) {
         bool allowReset = true;
 
         // 显示主桌面提示即将进入下载模式;
@@ -723,6 +774,180 @@ void ProgramDownloadMode() {
         }
     }
 }
+
+class SystemSleep {
+   private:
+   public:
+    // 读取主要GPIO管脚的状态;
+    String GPIO_Read() {
+        // 首先读取译码器控制引脚的状态;
+        int decoderC = digitalRead(Decoder_C);
+        int decoderB = digitalRead(Decoder_B);
+        int decoderA = digitalRead(Decoder_A);
+
+        // 解释译码器引脚的状态;
+        String decodedWith = "\nDecoded_with=";
+        switch (decoderC << 2 | decoderB << 1 | decoderA) {
+            case 1:
+                decodedWith += "Buzzer_Enable";
+                break;
+            case 2:
+                decodedWith += "RedLED_Enable";
+                break;
+            case 3:
+                decodedWith += "GreenLED_Enable";
+                break;
+            case 4:
+                decodedWith += "BlueLED_Enable";
+                break;
+            case 6:
+                decodedWith += "Sensor_and_OLED_disabled";
+                break;
+            default:
+                decodedWith += "NULL";
+                break;
+        }
+
+        // 其余引脚的状态直接读出;
+        String GPIO_State = "RST=" + String(digitalRead(RST)) + "\nTXD=" + String(digitalRead(TXD)) + "\nRXD=" + String(digitalRead(RXD)) +
+                            "\nSCL=" + String(digitalRead(SCL)) + "\nSDA=" + String(digitalRead(SDA)) + "\nCHRG=" + String(digitalRead(CHRG)) +
+                            "\nLOWPOWER=" + String(digitalRead(LOWPOWER)) + "\nSENOUT=" + String(digitalRead(SENOUT)) + "\nDecoder_C=" + String(decoderC) +
+                            "\nDecoder_B=" + String(decoderB) + "\nDecoder_A=" + String(decoderA) + decodedWith;
+        return GPIO_State;
+    }
+
+    // 获取系统模式和状态;
+    String getSysModeAndStatus() {
+        return "Charging_State=" + String(Charging_State) + "\nWIFI_State=" + String(WIFI_State) + "\nDeveloper_Mode=" + String(Developer_Mode) +
+               "\nallowResponse=" + String(allowResponse) + "\nallowDownloadMode=" + String(allowDownloadMode) + "\nfreezeMode=" + String(freezeMode) +
+               "\ndiskMode=" + String(diskMode);
+    }
+
+    // 删除diskMode深度睡眠缓存的数据文件;
+    void removeSleepFile() {
+        // 如果存放休眠文件的目录存在则删除这个目录;
+        if (LittleFS.exists("/SleepFile")) FFileS.removeDirector("", "/SleepFile");
+    }
+
+    // 从深度睡眠diskMode恢复系统;
+    void resumeFromDeepSleep() {
+        LittleFS.begin();       // 启动闪存文件系统
+        String SleepFile = "";  // 休眠文件字符串结构: String("Name1="+"Status1"+"\nName2="+"Status2"+"\nName3="+"Status3"......)
+
+        // 如果[GPIO_Status]休眠文件存在则从该文件恢复系统;
+        if (LittleFS.exists("/SleepFile/GPIO_Status.txt")) {
+            // [GPIO_Status]-恢复深度睡眠前输出GPIO的状态;
+            SleepFile = FFileS.readFile("", "/SleepFile/GPIO_Status.txt");
+
+            // 以换行符分割字符串;
+            for (auto& i : oled.strsplit(SleepFile, "\n")) {
+                vector<String> GPIO_Status = oled.strsplit(i, "=");  // 以等于符分割字符串;
+
+                // 恢复译码器控制引脚的状态(恢复输出GPIO的状态);
+                if (GPIO_Status[0] == "Decoder_C") digitalWrite(Decoder_C, GPIO_Status[1].toInt());
+                if (GPIO_Status[0] == "Decoder_B") digitalWrite(Decoder_B, GPIO_Status[1].toInt());
+                if (GPIO_Status[0] == "Decoder_A") digitalWrite(Decoder_A, GPIO_Status[1].toInt());
+            }
+            FFileS.removeFile("", "/SleepFile/GPIO_Status.txt");  // 恢复完成后删除[GPIO_Status]深度休眠文件;
+        }
+
+        // 如果[系统模式和状态]休眠文件存在则从该文件恢复系统;
+        if (LittleFS.exists("/SleepFile/SysModeAndStatus.txt")) {
+            // [System Mode&Status(系统模式和状态)]-恢复深度睡眠前系统模式和状态;
+            SleepFile = FFileS.readFile("", "/SleepFile/SysModeAndStatus.txt");
+
+            // 以换行符分割字符串;
+            for (auto& i : oled.strsplit(SleepFile, "\n")) {
+                vector<String> SysModeAndStatus = oled.strsplit(i, "=");  // 以等于符分割字符串;
+
+                // if (SysModeAndStatus[0] == "Charging_State") Charging_State = (SysModeAndStatus[1].toInt() != 0);//实时检测不需要恢复;
+                // if (SysModeAndStatus[0] == "WIFI_State") WIFI_State = (SysModeAndStatus[1].toInt() != 0);//实时检测不需要恢复;
+                if (SysModeAndStatus[0] == "Developer_Mode") Developer_Mode = (SysModeAndStatus[1].toInt() != 0);  // 恢复"开发者模式"的设置;
+                if (SysModeAndStatus[0] == "allowResponse") allowResponse = (SysModeAndStatus[1].toInt() != 0);  // 恢复"允许服务器对客户端进行响应"的设置;
+                if (SysModeAndStatus[0] == "allowDownloadMode") allowDownloadMode = (SysModeAndStatus[1].toInt() != 0);  // 恢复"允许进入下载模式"的设置;
+                if (SysModeAndStatus[0] == "freezeMode") freezeMode = (SysModeAndStatus[1].toInt() != 0);                // 恢复"浅度睡眠"设置;
+                if (SysModeAndStatus[0] == "diskMode") diskMode = (SysModeAndStatus[1].toInt() != 0);                    // 恢复"深度睡眠"设置;
+            }
+            FFileS.removeFile("", "/SleepFile/SysModeAndStatus.txt");  // 恢复完成后删除[系统模式和状态]深度休眠文件;
+        }
+
+        diskMode = false;  // 禁用深度睡眠;
+    }
+
+    //[休眠模式-freeze], 冻结I/O设备, 关闭外设, ESP-12F进入Modem-sleep模式, 程序上只运行CMDControlPanel网络服务, 其他服务冻结;
+    void Sys_freezeMode(bool Enable = true) {
+        if (Enable == true) {
+            freezeMode = true;  // 启用浅度睡眠;
+
+            oled.OLED_Display_Off();  // OLED显示屏停止显示;
+
+            // 关闭所有传感器(红外&气体),关闭OLED屏幕,关闭所有声光警报,切断除MCU外的一切供电;
+            digitalWrite(Decoder_C, HIGH);
+            digitalWrite(Decoder_B, HIGH);
+            digitalWrite(Decoder_A, LOW);
+
+            WiFi.setSleepMode(WIFI_MODEM_SLEEP);  // ESP-12F进入Modem-sleep模式;
+        } else if (Enable == false) {
+            WiFi.setSleepMode(WIFI_NONE_SLEEP);  // ESP-12F离开睡眠模式;
+
+            freezeMode = false;  // 禁用浅度睡眠;
+
+            // 重新给所有传感器(红外&气体), OLED屏幕, 声光警报器上电;
+            digitalWrite(Decoder_C, HIGH);
+            digitalWrite(Decoder_B, HIGH);
+            digitalWrite(Decoder_A, HIGH);
+
+            // 大功率器件上电可能会造成局部电压波动, 等待一段时间至电压稳定(最少等待1s, 最多等待10s);
+            for (uint8 i = 0; i < 10; ++i) {
+                delay(1000);
+                if (digitalRead(SENOUT) == HIGH) break;
+            }
+
+            oled.OLED_Init();          // 初始化OLED
+            oled.OLED_ColorTurn(0);    // 0正常显示 1反色显示
+            oled.OLED_DisplayTurn(0);  // 0正常显示 1翻转180度显示
+
+            timeRef.getNetWorkTime();  // 获取网络时间;
+            oled.OLED_Clear();         // 清除界面
+            Desktop.Main_Desktop();    // 渲染主桌面;
+
+            timeRef.begin();  // 恢复时间刷新服务;
+            Desktop.begin();  // 恢复桌面刷新服务;
+        }
+    }
+
+    // disk [sleep time_us];
+    //[深度休眠模式-disk] 运行状态(GPIO_Status, 系统模式和状态, 文本框信息)数据存到Flash(醒来时恢复状态), 然后ESP12F进入深度睡眠;
+    void Sys_diskMode(uint64_t time_us = 0) {
+        // 登出和锁定CMDCP;
+        Developer_Mode = false;          // 退出开发者模式(显示状态栏和桌面时钟);
+        oled.setTextBox(0, 0, 128, 48);  // 设置文本框使其不遮挡状态栏;
+        oled.OLED_Clear();               // 清空OLED屏幕;
+
+        diskMode = true;   // 启用深度睡眠;
+        LittleFS.begin();  // 启动闪存文件系统
+
+        // [GPIO_Status]-保存进入深度睡眠前的GPIO状态到Flash, 以便从深度睡眠醒来时恢复GPIO状态;
+        File GPIO_StatusFile = LittleFS.open("/SleepFile/GPIO_Status.txt", "w");  // 创建&覆盖并打开GPIO_Status.txt文件;
+        GPIO_StatusFile.print(GPIO_Read());                                       // 向GPIO_StatusFile写入GPIO状态信息;
+        GPIO_StatusFile.close();                                                  // 完成文件写入后关闭文件;
+
+        //[System Mode&Status(系统模式和状态)]-保存系统现在处于的系统模式和状态到Flash, 以便从深度睡眠醒来时恢复;
+        File SysModeAndStatusFile = LittleFS.open("/SleepFile/SysModeAndStatus.txt", "w");  // 创建&覆盖并打开SysModeAndStatus.txt文件;
+        SysModeAndStatusFile.print(getSysModeAndStatus());  // 向SysModeAndStatusFile写入当前系统模式和状态状态信息;
+        SysModeAndStatusFile.close();                       // 完成文件写入后关闭文件;
+
+        // [PrintBox(文本框)]-保存进入深度睡眠前的OLED上输出的文本信息到Flash, 以便从深度睡眠醒来时恢复;
+        // 文本框休眠文件的数据结构: String("OLED屏幕第1行"+"\n"+"OLED屏幕第2行"+"\n"+"OLED屏幕第3行"+......)
+        File PrintBoxFile = LittleFS.open("/SleepFile/PrintBox.txt", "w");  // 创建&覆盖并打开PrintBox.txt文件;
+        for (auto& i : oled.getPrintBox()) {
+            PrintBoxFile.print(i + "\n");  // 向PrintBoxFile写入OLED屏幕打印的文本信息, 在OLED屏幕上的每行字符串的末尾追加"\n"后把所有行合并;
+        }
+        PrintBoxFile.close();  // 完成文件写入后关闭文件;
+
+        ESP.deepSleep(time_us);  // ESP-12F进入深度睡眠;
+    }
+} SysSleep;
 
 class CMDControlPanel {
    private:
@@ -756,7 +981,7 @@ class CMDControlPanel {
                     server.handleClient();  // 接收网络请求(获取从网络输入的密匙);
 
                     // 如果串口没有发送数据并且CMD不为空则将CMD的内容作为第一次输入的密匙;
-                    if (Serial.available() == false && CMD != "") {
+                    if (CMD != "") {
                         PassWord_Temp1 = CMD;
                         CMD = "";  // 清空CMD缓存;
                         break;
@@ -775,7 +1000,7 @@ class CMDControlPanel {
                     server.handleClient();  // 接收网络请求(获取从网络输入的密匙);
 
                     // 如果串口没有发送数据并且CMD不为空则将CMD的内容作为第二次输入的密匙;
-                    if (Serial.available() == false && CMD != "") {
+                    if (CMD != "") {
                         PassWord_Temp2 = CMD;
                         CMD = "";  // 清空CMD缓存;
                         break;
@@ -811,7 +1036,7 @@ class CMDControlPanel {
                     server.handleClient();  // 接收网络请求(获取从网络输入的密匙);
 
                     // 如果串口没有发送数据并且CMD不为空则将CMD的内容作为第二次输入的密匙;
-                    if (Serial.available() == false && CMD != "") {
+                    if (CMD != "") {
                         PassWord_Temp1 = String(sha1(CMD));  // 将输入的密码进行哈希加密后缓存到变量PassWord_Temp1;
                         CMD = "";                            // 清空CMD缓存;
                         break;
@@ -842,12 +1067,20 @@ class CMDControlPanel {
         }
     }
 
+    void saveCmdHistory(String CMD) {
+        LittleFS.begin();  // 启动闪存文件系统
+
+        File cmdHistory = LittleFS.open("/CMD_History.txt", "a");
+        cmdHistory.print(CMD + "\n");
+        cmdHistory.close();
+    }
+
    public:
     bool allow = false;
 
     void begin() {
         oled.setTextBox(0, 0, 128, 48);  // 设置文本框;
-        CMDControlPanel_ticker.attach_ms(1000, [this](void) -> void { allow = true; });
+        // CMDControlPanel_ticker.attach_ms(1000, [this](void) -> void { allow = true; });
     }
 
     String CMDControlPanelOnlinePortal(String CMDCP_Online_Message) {
@@ -857,7 +1090,7 @@ class CMDControlPanel {
         CMD = CMDCP_Online_Message;  // 更新在线控制台发送的网络命令到CMD缓存;
 
         // 当处于锁定状态并且没有在接收串口数据并且接收到进入CMDCP的命令;
-        if (LockerState == false && Serial.available() == false && (CMD == "CMD" || CMD == "cmd" || CMD == "login")) {
+        if (LockerState == false && (CMD == "CMD" || CMD == "cmd" || CMD == "login")) {
             LockerState = PassLocker();  // 更新PassLocker状态;
 
             // 如果用户进入了CMDCP;
@@ -897,25 +1130,26 @@ class CMDControlPanel {
     }
 
     void commandIndexer() {
-        if (Serial.available() == false && CMD != "") {
+        if (CMD != "") {
             oled.print("> " + CMD);
             Serial.println("> " + CMD);
 
+            // 以空格分割字符串;
             vector<String> CMD_Index = oled.strsplit(CMD, " ");
 
-            //{显示当前工作目录}pwd
+            //{显示当前工作目录(print work directory)}pwd
             if (CMD_Index[0] == "pwd") {
                 CMDCP_Response(FFileS.getWorkDirectory());
             }
 
-            // {显示工作目录下的内容}ls
+            // {显示工作目录下的内容(List files)}ls
             if (CMD_Index[0] == "ls") {
                 String listDirectory = FFileS.listDirectoryContents();
                 CMDCP_Response(listDirectory);
             }
 
             /*
-            {切换当前工作目录}cd [dirName]
+            {切换当前工作目录(Change directory)}cd [dirName]
             [cd ~][cd /] : 切换到Flash根目录;
             [cd -] : 返回上一个打开的目录;
             */
@@ -932,7 +1166,7 @@ class CMDControlPanel {
                 CMDCP_Response("");  // 空响应(该指令无响应内容);
             }
 
-            // {打开工作目录下的文件}cat [fileName]
+            // {打开工作目录下的文件(concatenate)}cat [fileName]
             if (CMD_Index[0] == "cat") {
                 String File_Info = FFileS.readFile(CMD_Index[1]);
                 CMDCP_Response(File_Info);
@@ -944,7 +1178,7 @@ class CMDControlPanel {
                 CMDCP_Response("");  // 空响应(该指令无响应内容);
             }
 
-            // {在工作目录下新建文件夹}mkdir dirName
+            // {在工作目录下新建文件夹(Make Directory)}mkdir dirName
             if (CMD_Index[0] == "mkdir") {
                 FFileS.makeDirector(CMD_Index[1]);
                 CMDCP_Response("");  // 空响应(该指令无响应内容);
@@ -968,7 +1202,7 @@ class CMDControlPanel {
             }
 
             /*
-            {删除一个文件或者目录}
+            {删除一个文件或者目录(Remove)}
             rm [fileName] : 删除工作目录下的文件;
             rm -r [dirName] : 删除工作目录下的文件夹;
             */
@@ -982,7 +1216,7 @@ class CMDControlPanel {
             }
 
             /*
-            {复制一个文件或目录}cp [-options] [sourcePath] [targetPath];
+            {复制一个文件或目录(Copy file)}cp [-options] [sourcePath] [targetPath];
             cp [源文件路径] [目标文件路径] : 复制一个文件到另一个文件;
             cp -r [源目录路径] [目标目录路径] : 复制一个目录到另一个目录;
             */
@@ -996,7 +1230,7 @@ class CMDControlPanel {
             }
 
             /*
-            {文件或目录改名或将文件或目录移入其它位置}mv [-options] [sourcePath] [targetPath];
+            {文件或目录改名或将文件或目录移入其它位置(Move)}mv [-options] [sourcePath] [targetPath];
             mv [源文件路径] [目标文件路径] : 移动一个文件到另一个文件;
             mv -r [源目录路径] [目标目录路径] : 移动一个目录到另一个目录;
             */
@@ -1036,13 +1270,110 @@ class CMDControlPanel {
                 CMDCP_Response("");      // 空响应(该指令无响应内容);
             }
 
+            //{打印主要GPIO引脚的状态(Print GPIO status)}pios
+            if (CMD_Index[0] == "pios") {
+                CMDCP_Response(SysSleep.GPIO_Read());
+            }
+
+            /*
+            {点亮板载的RGBLED}LED [color] [state]
+            led r 1/true/enable : 点亮红色的LED
+            led g 1/true/enable : 点亮绿色的LED
+            led b 1/true/enable : 点亮蓝色的LED
+            led r 0/false/disable : 熄灭红色的LED
+            led g 0/false/disable : 熄灭绿色的LED
+            led b 0/false/disable : 熄灭蓝色的LED
+
+            note: 点亮红灯和绿灯会触发下载模式进而导致复位, 因此我们要先禁用下载模式;
+            */
+            if (CMD_Index[0] == "led") {
+                if (CMD_Index[2] == "1" || CMD_Index[2] == "true" || CMD_Index[2] == "enable") {
+                    if (CMD_Index[1] == "r") {
+                        allowDownloadMode = false;  // 禁用下载模式;
+                        alert.LED_R_Enable(0, true);
+                    } else if (CMD_Index[1] == "g") {
+                        allowDownloadMode = false;  // 禁用下载模式;
+                        alert.LED_G_Enable(0, true);
+                    } else if (CMD_Index[1] == "b") {
+                        alert.LED_B_Enable(0, true);
+                    }
+                } else if (CMD_Index[2] == "0" || CMD_Index[2] == "false" || CMD_Index[2] == "disable") {
+                    if (CMD_Index[1] == "r") {
+                        alert.LED_R_Enable(0, false);
+                        allowDownloadMode = true;  // 启用下载模式;
+                    } else if (CMD_Index[1] == "g") {
+                        alert.LED_G_Enable(0, false);
+                        allowDownloadMode = true;  // 启用下载模式;
+                    } else if (CMD_Index[1] == "b") {
+                        alert.LED_B_Enable(0, false);
+                    }
+                }
+                CMDCP_Response("");  // 空响应(该指令无响应内容);
+            }
+
+            /*
+            {打开蜂鸣器}buzz [state]
+            state = 1/true/enable : 打开蜂鸣器
+            state = 0/false/disable : 关闭蜂鸣器
+            */
+            if (CMD_Index[0] == "buzz") {
+                if (CMD_Index[1] == "1" || CMD_Index[1] == "true" || CMD_Index[1] == "enable") {
+                    alert.BUZZER_Enable(0, true);  // 打开蜂鸣器
+                } else if (CMD_Index[1] == "0" || CMD_Index[1] == "false" || CMD_Index[1] == "disable") {
+                    alert.BUZZER_Enable(0, false);  // 关闭蜂鸣器
+                }
+                CMDCP_Response("");  // 空响应(该指令无响应内容);
+            }
+
+            //{关闭所有声光警报(Alert disable)}alertdis
+            if (CMD_Index[0] == "alertdis") {
+                alert.ALERT_Disable();  // 关闭所有声光警报;
+                CMDCP_Response("");     // 空响应(该指令无响应内容);
+            }
+
+            /*
+            {浅休眠模式}freeze [enable]
+            [休眠模式-freeze], 冻结I/O设备, 关闭外设, ESP-12F进入Modem-sleep模式, 程序上只运行CMDControlPanel网络服务, 其他服务冻结;
+            freeze 1/true/enable : 进入浅度休眠模式;
+            freeze 0/false/disable : 离开浅度休眠模式;
+            */
+            if (CMD_Index[0] == "freeze") {
+                if (CMD_Index[1] == "1" || CMD_Index[1] == "true" || CMD_Index[1] == "enable") {
+                    SysSleep.Sys_freezeMode(true);
+                } else if (CMD_Index[1] == "0" || CMD_Index[1] == "false" || CMD_Index[1] == "disable") {
+                    SysSleep.Sys_freezeMode(false);
+                }
+                CMDCP_Response("");  // 空响应(该指令无响应内容);
+            }
+
+            /*
+            {深度睡眠模式}disk [time_us]
+            [深度休眠模式-disk] 运行状态(GPIO_Status, 系统模式和状态, 文本框信息)数据存到Flash(醒来时恢复状态), 然后ESP12F进入深度睡眠;
+            time_us(微秒) = 0 : 无限期进入深度睡眠, 只有手动按RST复位才能恢复;
+            */
+            if (CMD_Index[0] == "disk") {
+                if (CMD_Index[1].toInt() != 0) SysSleep.Sys_diskMode(CMD_Index[1].toInt());
+                CMDCP_Response("");  // 空响应(该指令无响应内容);
+            }
+
+            /*
+            {显示历史执行过的命令}history [-options]
+            history -s : (history -sleep)显示深度睡眠前执行过的命令;
+            history -c : (history -clear)清空所有的命令历史记录;
+            */
+            if (CMD_Index[0] == "history") {
+                if (CMD_Index[1] == "-s") {
+                } else if (CMD_Index[1] == "-c") {
+                }
+            }
+
             //{清空控制台同时释放内存}clear
             if (CMD_Index[0] == "clear") {
                 oled.clearTextBox();
                 CMDCP_Response("");  // 空响应(该指令无响应内容);
             }
 
-            //{显示Flash信息}df
+            //{显示Flash信息(disk free)}df
             if (CMD_Index[0] == "df") {
                 String Flash_Info = FFileS.getFlash_info();
                 CMDCP_Response(Flash_Info);
@@ -1056,12 +1387,12 @@ class CMDControlPanel {
 
             //{登出CMDCP, 此操作将锁定CMDCP}logout
             if (CMD_Index[0] == "logout") {
-                LockerState = false;                              // 锁定CMDCP;
-                Developer_Mode = false;                           // 退出开发者模式(显示状态栏和桌面时钟);
-                oled.setTextBox(0, 0, 128, 48);                   // 设置文本框使其不遮挡状态栏;
-                oled.OLED_Clear();                                // 清空OLED屏幕;
-                timeRef.setTimeRefreshMark(timeRef.allow, true);  // 授予获取网络时间许可证(重新刷新桌面时间);
-                CMDCP_Response("");                               // 空响应(该指令无响应内容);
+                LockerState = false;             // 锁定CMDCP;
+                Developer_Mode = false;          // 退出开发者模式(显示状态栏和桌面时钟);
+                oled.setTextBox(0, 0, 128, 48);  // 设置文本框使其不遮挡状态栏;
+                oled.OLED_Clear();               // 清空OLED屏幕;
+                timeRef.allow = true;            // 授予获取网络时间许可证(重新刷新桌面时间);
+                CMDCP_Response("");              // 空响应(该指令无响应内容);
             }
 
             CMD = "";  // 清空命令;
@@ -1071,13 +1402,12 @@ class CMDControlPanel {
 
 class WebServer {
    public:
-    void begin() {
-        // 启动服务器;
-        server.begin();
+    void beginServer() {
+        server.begin();  // 启动服务器;
 
         // 初始化网络服务器
         server.on("/", []() { server.send(200, "text/html", CMDCP_Online); });
-        server.on("/CMD", [=]() {
+        server.on("/CMD", []() {
             // 从浏览器发送的信息中获取指令（字符串格式）
             String CMDCP_Online_Message = server.arg("message");
 
@@ -1086,10 +1416,45 @@ class WebServer {
             if (allowResponse == true) server.send(200, "text/html", CMDCP_Send_Message);
         });
     }
+
+    // 检查WIFI是否连接,若没有连接则连接;
+    void WiFi_Connect() {
+        // 读取时间数据(从RAM)如果数据为"00:00"则表示系统正在启动, 否则表示系统正常运行时需要确认WIFI连接正常(两种情况播放的动画不同);
+        if (timeRef.timeRead() == "00:00")
+            anim.setAnimation(67, 6);  // 设置动画播放位置(其他参数默认);
+        else
+            anim.setAnimation(112, 6);  // 设置动画播放位置(其他参数默认);
+
+        if (WiFi.status() != WL_CONNECTED) {
+            WIFI_State = false;
+
+            WiFi.begin(SSID, PASSWORD);
+            // 等待WIFI连接(超时时间为10s);
+            for (unsigned char i = 0; i < 100; ++i) {
+                if (WiFi.status() == WL_CONNECTED) {
+                    Serial.print("IP Address: ");
+                    Serial.print(WiFi.localIP());
+                    Serial.println(":" + String(ServerPort));
+
+                    WIFI_State = true;
+                    break;
+                } else {
+                    // 读取时间数据(从RAM)如果数据为"00:00"则表示系统正在启动, 否则表示系统正常运行时需要确认WIFI连接正常(两种情况播放的动画不同);
+                    if (timeRef.timeRead() == "00:00")
+                        anim.runAnimation(anim.loadingBar_60x8_30F);  // 播放进度条加载动画;
+                    else
+                        anim.runAnimation(anim.loading_X16_60F);  // 播放加载动画;
+                }
+            }
+        } else {
+            WIFI_State = true;
+        }
+    }
 } WebServer;
 
 void setup(void) {
     Serial.begin(115200);
+    LittleFS.begin();  // 启动闪存文件系统
 
     /*----初始化GPIO----*/
     alert.AlertInit();  // 声光警报器初始化;
@@ -1108,37 +1473,32 @@ void setup(void) {
 
     oled.OLED_DrawBMP(0, 0, 128, 64, RMSHE_IMG);  // 显示 RMSHE_Infinity LOGO;
 
-    WiFi_Connect();  // 连接WIFI;
+    WebServer.WiFi_Connect();  // 连接WIFI;
 
     http.setTimeout(TimeOut);           // 设置连接超时时间;
     http.begin(client, GetSysTimeUrl);  // 初始化获取网络时间;
 
     timeRef.getNetWorkTime();  // 获取网络时间;
     oled.OLED_Clear();         // 清除界面
-    Main_Desktop();            // 渲染主桌面;
+    Desktop.Main_Desktop();    // 渲染主桌面;
 
-    // 不触发警报的条件下每隔60s刷新一次时间(多线程);
-    TimeRefresh_ticker.attach(60, [](void) -> void {
-        // 如果处于开发者模式则停止刷新时间;
-        if (digitalRead(SENOUT) == HIGH && Developer_Mode == false) timeRef.setTimeRefreshMark(timeRef.allow, true);  // 授予获取网络时间许可证;
+    // 不触发警报的条件下每隔5min检查一次WIFI是否连接若没有连接则连接(多线程);
+    WIFI_Test.attach(300, [](void) -> void {
+        // 检测WIFI是否连接, 若没有连接则修改标志, 主线程识别到WIFI_State = false后会执行连接WIFI的函数;
+        if (digitalRead(SENOUT) == HIGH && WiFi.status() != WL_CONNECTED) WIFI_State = false;
     });
 
-    // 不触发警报的条件下每隔500ms刷新一次状态栏(多线程);
-    StatusBars_ticker.attach_ms(500, [](void) -> void {
-        // 如果处于开发者模式则停止刷新状态栏;
-        if (digitalRead(SENOUT) == HIGH && Developer_Mode == false) StatusBars_Render();
-    });
+    timeRef.begin();          // 用于更新时间(多线程);
+    Desktop.begin();          // 用于刷新桌面(多线程);
+    CMDCP.begin();            // 启动CMDControlPanel服务;
+    WebServer.beginServer();  // 启动网络服务;
 
-    CMDCP.begin();  // 启动CMDControlPanel;
-
-    WebServer.begin();
+    SysSleep.resumeFromDeepSleep();
 }
 
 void loop(void) {
-    if (digitalRead(SENOUT) == LOW) {
+    if (digitalRead(SENOUT) == LOW && freezeMode == false) {
         alert.flashWriteAlertLog("S" + timeRef.timeRead(false));  // 写警报日志(开始报警);
-
-        WiFi_Connect();  // 检查WIFI是否连接,若没有连接则连接;
 
         unsigned int WarningCycle = 0;
         while (digitalRead(SENOUT) == LOW) {
@@ -1157,30 +1517,23 @@ void loop(void) {
             alert.BUZZER_Enable(400 * cos(0.1 * WarningCycle) + 500);  // 蜂鸣器报警
             ++WarningCycle;
         }
+
         alert.flashWriteAlertLog("E" + timeRef.timeRead(false));  // 写警报日志(结束报警);
-
-        oled.OLED_Clear();  // 清除界面
-        Main_Desktop();     // 渲染主桌面;
+        alert.ALERT_Disable();                                    // 关闭所有声光警报;
+        oled.OLED_Clear();                                        // 清除界面
+        Desktop.Main_Desktop();                                   // 渲染主桌面;
     }
-    alert.ALERT_Disable();  // 关闭所有声光警报;
+
     Show_Charging_info();   // 判断电池是否进入充电并显示电池开始充电的信息;
-    ProgramDownloadMode();
+    ProgramDownloadMode();  // 程序下载模式(下载程序必须下拉GPIO0并且复位);
 
-    // 当允许获取网络时间时会执行此程序;
-    if (timeRef.getTimeRefreshMark(timeRef.allow) == true) {
-        WiFi_Connect();                                    // 检查WIFI是否连接,若没有连接则连接;
-        timeRef.getNetWorkTime();                          // 获取网络时间;
-        Main_Desktop();                                    // 重新渲染桌面;
-        timeRef.setTimeRefreshMark(timeRef.allow, false);  // 吊销许可证(网络时间获取许可由定时器授予);
+    // 当允许获取网络时间时会执行此程序(同步本地系统时间);
+    if (timeRef.allow == true) {
+        timeRef.getNetWorkTime();  // 获取网络时间;
+        timeRef.allow = false;     // 吊销许可证(网络时间获取许可由定时器授予);
     }
 
-    // if (CMDCP.allow == true) CMDCP.CMDControlPanelSerialPortal();
-
-    if (WiFi.status() != WL_CONNECTED) WIFI_State = false;  // 检测WIFI是否连接;
+    if (WIFI_State == false) WebServer.WiFi_Connect();  // 如果WIFI连接标志为false则连接WIFI;
 
     server.handleClient();
-
-    /*double to char[]*/
-    // char GAS_ANALOG_chr[8];
-    // dtostrf(GAS_ANALOG, 6, 3, GAS_ANALOG_chr);
 }

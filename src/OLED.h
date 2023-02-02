@@ -158,6 +158,12 @@ class OLED {
     // 清空文本框并释放内存;
     void clearTextBox();
 
+    // 获取文本框的全部文本;
+    vector<String> getPrintBox();
+
+    // 用一个新的PrintBox结构的数据替换掉现有的PrintBox(要求保证数据结构正确);
+    void replacePrintBox(vector<String> newPrintBox);
+
     // 移动滚动条(true:向下滚动, falas:向上滚动);
     void moveScrollBar(bool direction = true);
 
