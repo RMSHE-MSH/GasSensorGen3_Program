@@ -1436,9 +1436,22 @@ class CMDControlPanel {
             }
         }
 
-        //{显示系统时间}date
+        /*
+        {显示或设置系统时间}date [-options] [timeStr];
+        date : 显示系统时间;
+        date -n : 同步网络时间;
+        date -s [timeStr] : 根据字符串设置(set)系统时间, timeStr = 20230203121601 (Year Month Day Hour Minute Second);
+        */
         if (CMD_Index[0] == "date") {
-            CMDCP_Response(timeRef.timeRead(false));
+            if (CMD_Index[1] == "-n") {
+                timeRef.getNetWorkTime();  // 同步网络时间;
+                CMDCP_Response("");        // 空响应(该指令无响应内容);
+            } else if (CMD_Index[1] == "-s") {
+                timeRef.sysTime.setSystemTime(CMD_Index[2]);  // 设置系统时间;
+                CMDCP_Response("");                           // 空响应(该指令无响应内容);
+            } else {
+                CMDCP_Response(timeRef.timeRead(false));  // 显示系统时间;
+            }
         }
 
         //{清空控制台同时释放内存}clear
@@ -1471,19 +1484,43 @@ class CMDControlPanel {
             CMDCP_Response("");  // 空响应(该指令无响应内容);
         }
 
-        //{登出CMDCP, 此操作将锁定CMDCP}logout
-        if (CMD_Index[0] == "logout") {
-            // 获取登出用户的IP地址;
-            String clientLogoutIP = server.client().remoteIP().toString();
+        /*
+        {登出和锁定CMDCP}logout [-options] [clientIP];
+        logout : 自己登出, 不会影响其他终端;
+        logout -k [clientIP] : 将指定IP地址的终端登出(kill);
+        logout -k other : 登出(kill)除自己外的其他终端;
+        logout -k all : 登出所有终端;
+        */
+        auto clientLogout = [this](String clientIP) -> void {
             // 将该用户的IP从已登录并且正在使用还未登出CMD用户的IP地址中删除(即注销该用户的IP, 标记为未登录状态);
-            clientLogedIP.erase(remove(clientLogedIP.begin(), clientLogedIP.end(), clientLogoutIP), clientLogedIP.end());
-            // 在上面的代码中，remove 函数在 vector 中删除所有与 clientLogoutIP 字符串相等的字符串，erase 函数删除 vector 中剩余的空元素。
+            clientLogedIP.erase(remove(clientLogedIP.begin(), clientLogedIP.end(), clientIP), clientLogedIP.end());
+            // 在上面的代码中，remove 函数在 vector 中删除所有与 clientIP 字符串相等的字符串，erase 函数删除 vector 中剩余的空元素。
 
             /*记录用户的登出时间和IP地址*/
-            LittleFS.begin();                                                                   // 启动闪存文件系统
-            File cmdLoggedInfo = LittleFS.open("/CMD_Logged_Info.txt", "a");                    // 打开CMD_Logged_Info.txt追加日志;
-            cmdLoggedInfo.print(clientLogoutIP + "-" + timeRef.timeRead(false) + "-logout\n");  // IP地址+时间+登出记录;
-            cmdLoggedInfo.close();
+            File cmdLoggedInfo = LittleFS.open("/CMD_Logged_Info.txt", "a");              // 打开CMD_Logged_Info.txt追加日志;
+            cmdLoggedInfo.print(clientIP + "-" + timeRef.timeRead(false) + "-logout\n");  // IP地址+时间+登出记录;
+            cmdLoggedInfo.close();                                                        // 关闭文件;
+        };
+        if (CMD_Index[0] == "logout") {
+            LittleFS.begin();  // 启动闪存文件系统
+            if (CMD_Index[1] == "-k") {
+                if (CMD_Index[2] == "other") {
+                    String clientLogoutIP = server.client().remoteIP().toString();  // 获取当前用户的IP地址;
+                    vector<String> allClientIP = clientLogedIP;  // 这里必须先拷贝一份clientLogedIP, 因为在执行clientLogout()时会删除clientLogedIP的元素.
+
+                    for (auto& i : allClientIP)
+                        if (i != clientLogoutIP) clientLogout(i);  // 登出除自身外的所有终端;
+
+                } else if (CMD_Index[2] == "all") {
+                    vector<String> allClientIP = clientLogedIP;  // 这里必须先拷贝一份clientLogedIP, 因为在执行clientLogout()时会删除clientLogedIP的元素.
+                    for (auto& i : allClientIP) clientLogout(i);  // 登出所有终端;
+                } else {
+                    clientLogout(CMD_Index[2]);  // 登出指定IP地址的终端;
+                }
+            } else {
+                String clientLogoutIP = server.client().remoteIP().toString();  // 获取当前用户的IP地址(自身登出);
+                clientLogout(clientLogoutIP);                                   // 登出指定IP地址的终端;
+            }
 
             // 只有clientLogedIP为空时(所有用户都登出)才回到桌面;
             if (clientLogedIP.empty() == true) {
