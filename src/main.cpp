@@ -1,7 +1,7 @@
 // [RMSHE Infinty] GasSensorGen3_Program 2023.01.20 Powered by RMSHE
 // MCU: ESP8266; MODULE: ESP12F 74880;
-#include <ESP8266_Seniverse.h>
 #include <Hash.h>
+#include <WeatherNow.h>
 
 #include <stack>
 
@@ -22,7 +22,9 @@ Ticker TimeRefresh_ticker;
 Ticker System_time;
 Ticker Desktop_ticker;
 Ticker CMDControlPanel_ticker;
-Ticker WIFI_Test;  // 用于检测WIFI是否连接;
+Ticker UpdateWeather;
+Ticker WIFI_Test;       // 用于检测WIFI是否连接;
+WeatherNow weatherNow;  // 建立WeatherNow对象用于获取心知天气信息
 
 //[System Mode&Status(系统模式和状态)]
 bool Charging_State = false;    // 充电状态(0:没在充电; 1:正在充电);
@@ -518,6 +520,54 @@ class TimeRefresh {
 
 } timeRef;
 
+// 获取实时天气类;
+class Weather {
+   public:
+    void beginWeather() {
+        // 读取Weather_Config.ini文件(保存了私钥和位置), 以<PRIVATEKEY/LOCATION>分割字符串;
+        vector<String> WeatherConfig = oled.strsplit(FFileS.readFile("", "/Weather_Config.ini"), "<PRIVATEKEY/LOCATION>");
+
+        // 配置心知天气请求信息
+        weatherNow.config(WeatherConfig[0], WeatherConfig[1], "c");
+
+        // 不触发警报的条件下每隔15min更新一次天气信息(多线程);
+        UpdateWeather.attach(900, [this](void) -> void {
+            // 如果系统进入freezeMode(浅度睡眠)停止定时调用函数;
+            if (freezeMode == true) UpdateWeather.detach();
+
+            // weatherCode++;
+            // if (weatherCode == 39) weatherCode = 0;
+
+            if (digitalRead(SENOUT) == HIGH) updateWeather();
+        });
+    }
+
+    // 更新天气信息;
+    String updateWeather() {
+        if (!weatherNow.update()) {
+            return "Weather Update Fail: " + weatherNow.getServerCode();  // 更新失败;
+        } else {
+            return "";
+        }
+    }
+
+    // 设置城市ID;
+    String setCityID(String cityID) {
+        // 读取Weather_Config.ini文件(保存了私钥和位置), 以<PRIVATEKEY/LOCATION>分割字符串;
+        vector<String> WeatherConfig = oled.strsplit(FFileS.readFile("", "/Weather_Config.ini"), "<PRIVATEKEY/LOCATION>");
+
+        // 保持私钥不变, 覆盖原有的配置文件;
+        FFileS.fileCover(WeatherConfig[0] + "<PRIVATEKEY/LOCATION>" + cityID, "", "/Weather_Config.ini");
+
+        // 配置心知天气请求信息
+        weatherNow.config(WeatherConfig[0], cityID, "c");
+
+        // 更新天气信息;
+        return updateWeather();
+    }
+
+} weather;
+
 typedef struct ANIM_INDEX {
     unsigned short name;      // 动画名称
     unsigned short Duration;  // 动画播放时长;
@@ -618,16 +668,8 @@ class Desktop {
    private:
     // 任务栏图标排序表(储存了任务栏图标的动态显示位置);
     typedef struct StatusBars_Ranked {
-        unsigned char unit = 16;  // 图标显示单位(16x16图标);
-
-        // 图标注册标记状态(true:注册; false:注销);
-        bool Register_State[8] = {false, false, false, false, false, false, false, false};
-
-        // 动态储存图标位置(初始位置设为-16);
-        int StatusBars_Pos[8] = {-16, -16, -16, -16, -16, -16, -16, -16};
-
         // 图标编号(对应oledfont.h中的编号);
-        unsigned char Clear_Icon = 6;
+        unsigned char Clear_Icon = 46;
 
         unsigned char Charging = 0;
         unsigned char WIFI = 1;
@@ -635,12 +677,67 @@ class Desktop {
         unsigned char Disconnected = 3;
         unsigned char Battery = 4;
         unsigned char CMDCP = 5;
+
+        unsigned char Sunny_Day_0 = 6;
+        unsigned char Clear_Night_1 = 7;
+        unsigned char Sunny_Day_2 = 8;
+        unsigned char Clear_Night_3 = 9;
+        unsigned char Cloudy_4 = 10;
+        unsigned char Partly_Cloudy_Day_5 = 11;
+        unsigned char Partly_Cloudy_Night_6 = 12;
+        unsigned char Mostly_Cloudy_Day_7 = 13;
+        unsigned char Mostly_Cloudy_Night_8 = 14;
+        unsigned char Overcast_9 = 15;
+        unsigned char Shower_10 = 16;
+        unsigned char Thundershower_11 = 17;
+        unsigned char Thundershower_with_Hail_12 = 18;
+        unsigned char Light_Rain_13 = 19;
+        unsigned char Moderate_Rain_14 = 20;
+        unsigned char Heavy_Rain_15 = 21;
+        unsigned char Storm_16 = 22;
+        unsigned char Heavy_Storm_17 = 23;
+        unsigned char Severe_Storm_18 = 24;
+        unsigned char Ice_Rain_19 = 25;
+        unsigned char Sleet_20 = 26;
+        unsigned char Snow_Flurry_21 = 27;
+        unsigned char Light_Snow_22 = 28;
+        unsigned char Moderate_Snow_23 = 29;
+        unsigned char Heavy_Snow_24 = 30;
+        unsigned char Snowstorm_25 = 31;
+        unsigned char Dust_26 = 32;
+        unsigned char Sand_27 = 33;
+        unsigned char Duststorm_28 = 34;
+        unsigned char Sandstorm_29 = 35;
+        unsigned char Foggy_30 = 36;
+        unsigned char Haze_31 = 37;
+        unsigned char Windy_32 = 38;
+        unsigned char Blustery_33 = 39;
+        unsigned char Hurricane_34 = 40;
+        unsigned char Tropical_Storm_35 = 41;
+        unsigned char Tornado_36 = 42;
+        unsigned char Cold_37 = 43;
+        unsigned char Hot_38 = 44;
+        unsigned char Unknown_99 = 45;
         //......
+
+        unsigned char unit = 16;  // 图标显示单位(16x16图标);
+
+        vector<unsigned char> StatusBars_Pos;  // 动态储存图标位置和注册状态, 图标在状态栏中的位置就是在vector中的位置, vector中的内容表示注册状态;
+
+        /*
+        // 图标注册标记状态(true:注册; false:注销);
+        bool Register_State[64];
+
+        // 动态储存图标位置(初始位置设为-16);
+        int StatusBars_Pos[8] = {-16, -16, -16, -16, -16, -16, -16, -16};
+        */
+
     } StatusBars_Ranked;
     StatusBars_Ranked SBR;
 
     // 注册状态栏图标的位置(状态名称,模式[false:注销图标; true:注册图标]);
     void Icon_Register(unsigned char name, bool mode) {
+        /*
         if (mode == false && SBR.Register_State[name] == true) {  // 在状态栏注销图标;
             SBR.Register_State[name] = false;                     // 标记注销图标;
 
@@ -659,13 +756,34 @@ class Desktop {
             // 分配注册图标的位置: 注册图标的位置 = 所有图标位置的最大值 + 一个图标显示单位;
             SBR.StatusBars_Pos[name] = tool.findArrMax(SBR.StatusBars_Pos, 8) + SBR.unit;
         }
+        */
+
+        short Register_Pos = -16;  // 将注册位置初始化为-16;
+
+        // 查找vector中"name"的下标, 下标位置就是注册位置(注册位置*16就是图标在显示屏中的位置);
+        auto it = std::find(SBR.StatusBars_Pos.begin(), SBR.StatusBars_Pos.end(), name);
+        if (it != SBR.StatusBars_Pos.end()) {
+            Register_Pos = static_cast<short>(std::distance(SBR.StatusBars_Pos.begin(), it));
+        }
+
+        if (mode == false && Register_Pos != -16) {  // 在状态栏注销图标;
+            // 清空注销图标(包括注销图标)右方的区域;
+            for (unsigned char i = Register_Pos * SBR.unit; i <= 112; i += SBR.unit) oled.OLED_DrawBMP(i, 6, 16, 16, StatusBars[SBR.Clear_Icon]);
+
+            // remove 函数在 vector 中删除所有与 name 相等的元素，erase 函数删除 vector 中剩余的空元素(注销图标)。
+            SBR.StatusBars_Pos.erase(remove(SBR.StatusBars_Pos.begin(), SBR.StatusBars_Pos.end(), name), SBR.StatusBars_Pos.end());
+
+        } else if (mode == true && Register_Pos == -16) {  // 在状态栏注册图标
+            SBR.StatusBars_Pos.push_back(name);            // 在状态栏的最后添加新注册的图标;
+            Register_Pos = SBR.StatusBars_Pos.size() - 1;  // 获取最后一个图标位置(即新注册图标的位置);
+        }
 
         if (mode == true) {
-            oled.OLED_DrawBMP(SBR.StatusBars_Pos[name], 6, 16, 16, StatusBars[name]);  // 显示图标;
+            oled.OLED_DrawBMP(Register_Pos * SBR.unit, 6, 16, 16, StatusBars[name]);  // 显示图标;
         }
     }
 
-    // 渲染状态栏;
+    // 渲染状态栏(注意多线程使用循环可能会出问题);
     void StatusBars_Render() {
         // 正在充电状态;
         if (Charging_State == true) {
@@ -708,6 +826,265 @@ class Desktop {
         } else {
             Icon_Register(SBR.CMDCP, false);  // 注销图标位置;
         }
+
+        if (weatherNow.getWeatherCode() == 99) {
+            Icon_Register(SBR.Unknown_99, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Unknown_99, false);  // 注销图标位置;
+        }
+
+        for (unsigned char i = SBR.Sunny_Day_0; i <= SBR.Hot_38; ++i) {
+            if (weatherNow.getWeatherCode() == (i - SBR.Sunny_Day_0)) {
+                Icon_Register(i, true);  // 注册图标位置;
+            } else {
+                Icon_Register(i, false);  // 注销图标位置;
+            }
+        }
+
+        /*
+        // 晴（国内城市白天晴）;
+        if (weather.weatherCode == 0) {
+            Icon_Register(SBR.Sunny_Day_0, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Sunny_Day_0, false);  // 注销图标位置;
+        }
+        // 晴（国内城市夜晚晴）;
+        if (weather.weatherCode == 1) {
+            Icon_Register(SBR.Clear_Night_1, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Clear_Night_1, false);  // 注销图标位置;
+        }
+        // 晴（国外城市白天晴）;
+        if (weather.weatherCode == 2) {
+            Icon_Register(SBR.Sunny_Day_2, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Sunny_Day_2, false);  // 注销图标位置;
+        }
+        // 晴（国外城市夜晚晴）;
+        if (weather.weatherCode == 3) {
+            Icon_Register(SBR.Clear_Night_3, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Clear_Night_3, false);  // 注销图标位置;
+        }
+        // 多云;
+        if (weather.weatherCode == 4) {
+            Icon_Register(SBR.Cloudy_4, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Cloudy_4, false);  // 注销图标位置;
+        }
+        // 晴间多云(日);
+        if (weather.weatherCode == 5) {
+            Icon_Register(SBR.Partly_Cloudy_Day_5, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Partly_Cloudy_Day_5, false);  // 注销图标位置;
+        }
+        // 晴间多云(夜);
+        if (weather.weatherCode == 6) {
+            Icon_Register(SBR.Partly_Cloudy_Night_6, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Partly_Cloudy_Night_6, false);  // 注销图标位置;
+        }
+        // 大部多云(日);
+        if (weather.weatherCode == 7) {
+            Icon_Register(SBR.Mostly_Cloudy_Day_7, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Mostly_Cloudy_Day_7, false);  // 注销图标位置;
+        }
+        // 大部多云(夜);
+        if (weather.weatherCode == 8) {
+            Icon_Register(SBR.Mostly_Cloudy_Night_8, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Mostly_Cloudy_Night_8, false);  // 注销图标位置;
+        }
+        // 阴;
+        if (weather.weatherCode == 9) {
+            Icon_Register(SBR.Overcast_9, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Overcast_9, false);  // 注销图标位置;
+        }
+        // 阵雨;
+        if (weather.weatherCode == 10) {
+            Icon_Register(SBR.Shower_10, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Shower_10, false);  // 注销图标位置;
+        }
+        // 雷阵雨;
+        if (weather.weatherCode == 11) {
+            Icon_Register(SBR.Thundershower_11, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Thundershower_11, false);  // 注销图标位置;
+        }
+        // 雷阵雨伴有冰雹;
+        if (weather.weatherCode == 12) {
+            Icon_Register(SBR.Thundershower_with_Hail_12, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Thundershower_with_Hail_12, false);  // 注销图标位置;
+        }
+        // 小雨;
+        if (weather.weatherCode == 13) {
+            Icon_Register(SBR.Light_Rain_13, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Light_Rain_13, false);  // 注销图标位置;
+        }
+        // 中雨;
+        if (weather.weatherCode == 14) {
+            Icon_Register(SBR.Moderate_Rain_14, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Moderate_Rain_14, false);  // 注销图标位置;
+        }
+        // 大雨;
+        if (weather.weatherCode == 15) {
+            Icon_Register(SBR.Heavy_Rain_15, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Heavy_Rain_15, false);  // 注销图标位置;
+        }
+        // 暴雨;
+        if (weather.weatherCode == 16) {
+            Icon_Register(SBR.Storm_16, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Storm_16, false);  // 注销图标位置;
+        }
+        // 大暴雨;
+        if (weather.weatherCode == 17) {
+            Icon_Register(SBR.Heavy_Storm_17, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Heavy_Storm_17, false);  // 注销图标位置;
+        }
+        // 特大暴雨;
+        if (weather.weatherCode == 18) {
+            Icon_Register(SBR.Severe_Storm_18, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Severe_Storm_18, false);  // 注销图标位置;
+        }
+        // 冻雨;
+        if (weather.weatherCode == 19) {
+            Icon_Register(SBR.Ice_Rain_19, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Ice_Rain_19, false);  // 注销图标位置;
+        }
+        // 雨夹雪;
+        if (weather.weatherCode == 20) {
+            Icon_Register(SBR.Sleet_20, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Sleet_20, false);  // 注销图标位置;
+        }
+        // 阵雪;
+        if (weather.weatherCode == 21) {
+            Icon_Register(SBR.Snow_Flurry_21, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Snow_Flurry_21, false);  // 注销图标位置;
+        }
+        // 小雪;
+        if (weather.weatherCode == 22) {
+            Icon_Register(SBR.Light_Snow_22, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Light_Snow_22, false);  // 注销图标位置;
+        }
+        // 中雪;
+        if (weather.weatherCode == 23) {
+            Icon_Register(SBR.Moderate_Snow_23, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Moderate_Snow_23, false);  // 注销图标位置;
+        }
+        // 大雪;
+        if (weather.weatherCode == 24) {
+            Icon_Register(SBR.Heavy_Snow_24, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Heavy_Snow_24, false);  // 注销图标位置;
+        }
+        // 暴雪;
+        if (weather.weatherCode == 25) {
+            Icon_Register(SBR.Snowstorm_25, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Snowstorm_25, false);  // 注销图标位置;
+        }
+        // 浮尘;
+        if (weather.weatherCode == 26) {
+            Icon_Register(SBR.Dust_26, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Dust_26, false);  // 注销图标位置;
+        }
+        // 扬沙;
+        if (weather.weatherCode == 27) {
+            Icon_Register(SBR.Sand_27, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Sand_27, false);  // 注销图标位置;
+        }
+        // 沙尘暴;
+        if (weather.weatherCode == 28) {
+            Icon_Register(SBR.Duststorm_28, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Duststorm_28, false);  // 注销图标位置;
+        }
+        // 强沙尘暴;
+        if (weather.weatherCode == 29) {
+            Icon_Register(SBR.Sandstorm_29, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Sandstorm_29, false);  // 注销图标位置;
+        }
+        // 雾;
+        if (weather.weatherCode == 30) {
+            Icon_Register(SBR.Foggy_30, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Foggy_30, false);  // 注销图标位置;
+        }
+        // 霾;
+        if (weather.weatherCode == 31) {
+            Icon_Register(SBR.Haze_31, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Haze_31, false);  // 注销图标位置;
+        }
+        // 风;
+        if (weather.weatherCode == 32) {
+            Icon_Register(SBR.Windy_32, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Windy_32, false);  // 注销图标位置;
+        }
+        // 大风;
+        if (weather.weatherCode == 33) {
+            Icon_Register(SBR.Blustery_33, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Blustery_33, false);  // 注销图标位置;
+        }
+        // 飓风;
+        if (weather.weatherCode == 34) {
+            Icon_Register(SBR.Hurricane_34, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Hurricane_34, false);  // 注销图标位置;
+        }
+        // 热带风暴;
+        if (weather.weatherCode == 35) {
+            Icon_Register(SBR.Tropical_Storm_35, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Tropical_Storm_35, false);  // 注销图标位置;
+        }
+        // 龙卷风;
+        if (weather.weatherCode == 36) {
+            Icon_Register(SBR.Tornado_36, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Tornado_36, false);  // 注销图标位置;
+        }
+        // 冷;
+        if (weather.weatherCode == 37) {
+            Icon_Register(SBR.Cold_37, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Cold_37, false);  // 注销图标位置;
+        }
+        // 热;
+        if (weather.weatherCode == 38) {
+            Icon_Register(SBR.Hot_38, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Hot_38, false);  // 注销图标位置;
+        }
+        // 未知;
+        if (weather.weatherCode == 99) {
+            Icon_Register(SBR.Unknown_99, true);  // 注册图标位置;
+        } else {
+            Icon_Register(SBR.Unknown_99, false);  // 注销图标位置;
+        }
+        */
+
+        //......
     }
 
    public:
@@ -1454,6 +1831,49 @@ class CMDControlPanel {
             }
         }
 
+        /*
+        {显示当前实时天气或修改城市}weather [-options] [cityID];
+        weather : 显示当前实时天气;
+        weather -n : 同步网络实时天气;
+        weather -s [cityID] : 设置城市, "cityID"中请填写心知天气的城市ID;
+        */
+        if (CMD_Index[0] == "weather") {
+            if (CMD_Index[1] == "-n") {
+                CMDCP_Response(weather.updateWeather());  // 同步网络实时天气(如果更新失败则返回错误信息);
+            } else if (CMD_Index[1] == "-s") {
+                CMDCP_Response(weather.setCityID(CMD_Index[2]));  // 设置城市ID(设置完成后会同步一次天气, 如果天气更新失败则返回错误信息);
+            } else {
+                // 显示当前实时天气;
+                CMDCP_Response("CityID: " + weatherNow.getCityID() + "\nCityName: " + weatherNow.getCityName() + "\nCountry: " + weatherNow.getCountry() +
+                               "\nPath: " + weatherNow.getPath() + "\nTimezone: " + weatherNow.getTimezone() +
+                               "\nTimezoneOffset: " + weatherNow.getTimezoneOffset() + "\nWeatherNow: " + weatherNow.getWeatherText() +
+                               "\nTemperature: " + String(weatherNow.getTemperature()) + "C" + "\nLastUpdate: " + weatherNow.getLastUpdate());
+            }
+        }
+
+        /*
+        {OLED显示屏文本框滚动}pgup/pgdn [line];
+        pgup : 向上滚动一行;
+        pgup -s [line] : 向上滚动, "line"为滚动的行数;
+        pgdn : 向下滚动一行;
+        pgdn -s [line] : 向下滚动, "line"为滚动的行数;
+        */
+        if (CMD_Index[0] == "pgup") {
+            if (CMD_Index[1] == "-s") {
+                for (unsigned char i = 0; i < CMD_Index[2].toInt(); ++i) oled.moveScrollBar(false);
+            } else {
+                oled.moveScrollBar(false);
+            }
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
+        } else if (CMD_Index[0] == "pgdn") {
+            if (CMD_Index[1] == "-s") {
+                for (unsigned char i = 0; i < CMD_Index[2].toInt(); ++i) oled.moveScrollBar(true);
+            } else {
+                oled.moveScrollBar(true);
+            }
+            CMDCP_Response("");  // 空响应(该指令无响应内容);
+        }
+
         //{清空控制台同时释放内存}clear
         if (CMD_Index[0] == "clear") {
             oled.clearTextBox();
@@ -1578,6 +1998,16 @@ class WebServer {
                     Serial.print(WiFi.localIP());
                     Serial.println(":" + String(ServerPort));
 
+                    // WIFI连接完成后清空动画播放区域;
+                    //  读取时间数据(从RAM)如果数据为"00:00"则表示系统正在启动, 否则表示系统正常运行时需要确认WIFI连接正常(两种情况播放的动画不同);
+                    if (timeRef.timeRead() == "00:00")
+                        // 清空进度条加载动画区域;
+                        oled.OLED_DrawBMP(67, 6, anim.loadingBar_60x8_30F.IMG_Width, anim.loadingBar_60x8_30F.IMG_Hight, LoadingBar_60x8_30F[30]);
+
+                    else
+                        // 清空加载动画区域;
+                        oled.OLED_DrawBMP(112, 6, anim.loading_X16_60F.IMG_Width, anim.loading_X16_60F.IMG_Hight, Loading_X16_60F[30]);
+
                     WIFI_State = true;
                     break;
                 } else {
@@ -1596,6 +2026,13 @@ class WebServer {
 
 void setup(void) {
     Serial.begin(115200);
+
+    // 初始化OLED
+    oled.OLED_Init();
+    oled.OLED_ColorTurn(0);                       // 0正常显示 1反色显示
+    oled.OLED_DisplayTurn(0);                     // 0正常显示 1翻转180度显示
+    oled.OLED_DrawBMP(0, 0, 128, 64, RMSHE_IMG);  // 显示 RMSHE_Infinity LOGO;
+
     LittleFS.begin();  // 启动闪存文件系统
 
     /*----初始化GPIO----*/
@@ -1607,22 +2044,16 @@ void setup(void) {
     pinMode(LOWPOWER, INPUT_PULLUP);  // 电池低电量输入引脚初始化(上拉输入);
     pinMode(SENOUT, INPUT_PULLUP);    // 传感器输入引脚初始化(上拉输入);
     pinMode(CHRG, INPUT_PULLUP);      // 电池状态输入引脚初始化(上拉输入);
-
-    // 初始化OLED
-    oled.OLED_Init();
-    oled.OLED_ColorTurn(0);    // 0正常显示 1反色显示
-    oled.OLED_DisplayTurn(0);  // 0正常显示 1翻转180度显示
-
-    oled.OLED_DrawBMP(0, 0, 128, 64, RMSHE_IMG);  // 显示 RMSHE_Infinity LOGO;
+    /*----GPIO初始化完成----*/
 
     WebServer.WiFi_Connect();  // 连接WIFI;
 
     http.setTimeout(TimeOut);           // 设置连接超时时间;
     http.begin(client, GetSysTimeUrl);  // 初始化获取网络时间;
+    timeRef.getNetWorkTime();           // 获取网络时间;
 
-    timeRef.getNetWorkTime();  // 获取网络时间;
-    oled.OLED_Clear();         // 清除界面
-    Desktop.Main_Desktop();    // 渲染主桌面;
+    weather.beginWeather();   // 初始化天气信息获取;
+    weather.updateWeather();  // 更新天气信息;
 
     // 不触发警报的条件下每隔5min检查一次WIFI是否连接若没有连接则连接(多线程);
     WIFI_Test.attach(300, [](void) -> void {
@@ -1635,7 +2066,10 @@ void setup(void) {
     CMDCP.begin();            // 启动CMDControlPanel服务;
     WebServer.beginServer();  // 启动网络服务;
 
-    SysSleep.resumeFromDeepSleep();
+    SysSleep.resumeFromDeepSleep();  // 从深度睡眠恢复系统(恢复深度睡眠前的状态, 如果是从深度睡眠中醒来的话);
+
+    oled.OLED_Clear();       // 清空屏幕;
+    Desktop.Main_Desktop();  // 渲染主桌面;
 }
 
 void loop(void) {

@@ -164,7 +164,7 @@ class OLED {
     // 用一个新的PrintBox结构的数据替换掉现有的PrintBox(要求保证数据结构正确);
     void replacePrintBox(vector<String> newPrintBox);
 
-    // 移动滚动条(true:向下滚动, falas:向上滚动);
+    // 移动滚动条一行(true:向下滚动, falas:向上滚动);
     void moveScrollBar(bool direction = true);
 
    private:
