@@ -56,6 +56,23 @@
 #define SSID "RMSHE"
 #define PASSWORD "<RMSHE>-GAATTC-A23187-[//2022.05.12]"
 
+/* 设备的三元组信息*/
+#define PRODUCT_KEY "i6abR7NBjfB"
+#define DEVICE_NAME "GasSensor_OS_ESP8266"
+#define DEVICE_SECRET "6269beb7dd1c4f92a29560441970f9de"
+#define REGION_ID "cn-shanghai"
+
+/* 线上环境域名和端口号，不需要改 */
+#define MQTT_SERVER PRODUCT_KEY ".iot-as-mqtt." REGION_ID ".aliyuncs.com"
+#define MQTT_PORT 1883
+
+#define MQTT_CLIENT_ID "i6abR7NBjfB.GasSensor_OS_ESP8266|securemode=2,signmethod=hmacsha256,timestamp=1675522358253|"
+
+// 算法工具: http://iot-face.oss-cn-shanghai.aliyuncs.com/tools.htm 进行加密生成password
+// password教程 https://www.yuque.com/cloud-dev/iot-tech/mebm5g
+#define MQTT_USRNAME DEVICE_NAME "&" PRODUCT_KEY
+#define MQTT_PASSWD "01a7128c6d546845b23f4c0521355c96e285b360a469be8f906371ac3a5e9d01"
+
 // 连接超时时间;
 #define TimeOut 5000  // ms;
 

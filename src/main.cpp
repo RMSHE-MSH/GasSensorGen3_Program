@@ -1,6 +1,7 @@
 // [RMSHE Infinty] GasSensorGen3_Program 2023.01.20 Powered by RMSHE
 // MCU: ESP8266; MODULE: ESP12F 74880;
 #include <Hash.h>
+#include <PubSubClient.h>
 #include <WeatherNow.h>
 
 #include <stack>
@@ -10,8 +11,6 @@
 #include "Tool.h"
 #include "Universal.h"
 #include "WebServer.h"
-
-ESP8266WebServer server(ServerPort);  // 建立网络服务器对象，该对象用于响应HTTP请求。监听端口（80）
 
 ALERT alert;
 OLED oled;
@@ -25,6 +24,9 @@ Ticker CMDControlPanel_ticker;
 Ticker UpdateWeather;
 Ticker WIFI_Test;       // 用于检测WIFI是否连接;
 WeatherNow weatherNow;  // 建立WeatherNow对象用于获取心知天气信息
+
+PubSubClient mqtt_client(client);     // 建立MQTT客户端对象;
+ESP8266WebServer server(ServerPort);  // 建立网络服务器对象，该对象用于响应HTTP请求。监听端口（80）
 
 //[System Mode&Status(系统模式和状态)]
 bool Charging_State = false;    // 充电状态(0:没在充电; 1:正在充电);
@@ -393,6 +395,35 @@ class FlashFileSystem {
         return foundFile;
     }
 
+    // 获取文件类型
+    String getContentType(String filename) {
+        if (filename.endsWith(".htm"))
+            return "text/html";
+        else if (filename.endsWith(".html"))
+            return "text/html";
+        else if (filename.endsWith(".css"))
+            return "text/css";
+        else if (filename.endsWith(".js"))
+            return "application/javascript";
+        else if (filename.endsWith(".png"))
+            return "image/png";
+        else if (filename.endsWith(".gif"))
+            return "image/gif";
+        else if (filename.endsWith(".jpg"))
+            return "image/jpeg";
+        else if (filename.endsWith(".ico"))
+            return "image/x-icon";
+        else if (filename.endsWith(".xml"))
+            return "text/xml";
+        else if (filename.endsWith(".pdf"))
+            return "application/x-pdf";
+        else if (filename.endsWith(".zip"))
+            return "application/x-zip";
+        else if (filename.endsWith(".gz"))
+            return "application/x-gzip";
+        return "text/plain";
+    }
+
 } FFileS;
 
 // 时间控制类;
@@ -534,9 +565,6 @@ class Weather {
         UpdateWeather.attach(900, [this](void) -> void {
             // 如果系统进入freezeMode(浅度睡眠)停止定时调用函数;
             if (freezeMode == true) UpdateWeather.detach();
-
-            // weatherCode++;
-            // if (weatherCode == 39) weatherCode = 0;
 
             if (digitalRead(SENOUT) == HIGH) updateWeather();
         });
@@ -1336,6 +1364,134 @@ class SystemSleep {
     }
 } SysSleep;
 
+class WebServer {
+   private:
+    File UploadFile;  // 建立文件对象用于文件上传至服务器闪存;
+    bool routeUploadEnabled = false;
+    String UploadRespond = "";  // 用于回复终端文件是否上次成功;
+
+   public:
+    // 检查WIFI是否连接,若没有连接则连接;
+    void WiFi_Connect() {
+        // 读取时间数据(从RAM)如果数据为"00:00"则表示系统正在启动, 否则表示系统正常运行时需要确认WIFI连接正常(两种情况播放的动画不同);
+        if (timeRef.timeRead() == "00:00")
+            anim.setAnimation(67, 6);  // 设置动画播放位置(其他参数默认);
+        else
+            anim.setAnimation(112, 6);  // 设置动画播放位置(其他参数默认);
+
+        if (WiFi.status() != WL_CONNECTED) {
+            WIFI_State = false;
+
+            // 读取WIFI_Config.ini文件(保存了WIFI名称和密码), 以<SSID/PASSWD>分割字符串;
+            vector<String> SSID_PASSWD = oled.strsplit(FFileS.readFile("", "/WIFI_Config.ini"), "<SSID/PASSWD>");
+
+            WiFi.begin(SSID_PASSWD[0], SSID_PASSWD[1]);
+            // 等待WIFI连接(超时时间为10s);
+            for (unsigned char i = 0; i < 100; ++i) {
+                if (WiFi.status() == WL_CONNECTED) {
+                    Serial.print("IP Address: ");
+                    Serial.print(WiFi.localIP());
+                    Serial.println(":" + String(ServerPort));
+
+                    // WIFI连接完成后清空动画播放区域;
+                    //  读取时间数据(从RAM)如果数据为"00:00"则表示系统正在启动, 否则表示系统正常运行时需要确认WIFI连接正常(两种情况播放的动画不同);
+                    if (timeRef.timeRead() == "00:00")
+                        // 清空进度条加载动画区域;
+                        oled.OLED_DrawBMP(67, 6, anim.loadingBar_60x8_30F.IMG_Width, anim.loadingBar_60x8_30F.IMG_Hight, LoadingBar_60x8_30F[30]);
+
+                    else
+                        // 清空加载动画区域;
+                        oled.OLED_DrawBMP(112, 6, anim.loading_X16_60F.IMG_Width, anim.loading_X16_60F.IMG_Hight, Loading_X16_60F[30]);
+
+                    WIFI_State = true;
+                    break;
+                } else {
+                    // 读取时间数据(从RAM)如果数据为"00:00"则表示系统正在启动, 否则表示系统正常运行时需要确认WIFI连接正常(两种情况播放的动画不同);
+                    if (timeRef.timeRead() == "00:00")
+                        anim.runAnimation(anim.loadingBar_60x8_30F);  // 播放进度条加载动画;
+                    else
+                        anim.runAnimation(anim.loading_X16_60F);  // 播放加载动画;
+                }
+            }
+        } else {
+            WIFI_State = true;
+        }
+    }
+
+    // 配置MQTT;
+    void MQTT_Begin() {
+        // 设置MQTT服务器
+        mqtt_client.setServer(MQTT_SERVER, 1883);
+        // 一定要设置keepAlive time为较大值，默认值15会无法建立连接，推荐60
+        mqtt_client.setKeepAlive(60);
+
+        MQTT_Client();  // 运行MQTT客户端;
+    }
+
+    // MQTT客户端;
+    void MQTT_Client() {
+        if (mqtt_client.connected()) {  // 如果开发板成功连接服务器
+            mqtt_client.loop();         // 处理信息以及心跳
+        } else {                        // 如果开发板未能成功连接服务器
+            // 则尝试连接服务器
+            // 连接MQTT服务器
+            if (mqtt_client.connect(MQTT_CLIENT_ID, MQTT_USRNAME, MQTT_PASSWD)) {
+                Serial.println("MQTT Server Connected.");
+                Serial.println("Server Address: ");
+                Serial.println(MQTT_SERVER);
+                Serial.println("ClientId:");
+                Serial.println(MQTT_CLIENT_ID);
+            } else {
+                Serial.print("MQTT Server Connect Failed. Client State:");
+                Serial.println(mqtt_client.state());
+                delay(2000);
+            }
+        }
+    }
+
+    bool getRouteUploadStatus() { return routeUploadEnabled; }
+
+    // 处理上传文件函数(用于将终端文件上传到服务器Flash);
+    void handleFileUpload() {
+        HTTPUpload& upload = server.upload();
+
+        if (upload.status == UPLOAD_FILE_START) {                           // 如果上传状态为UPLOAD_FILE_START
+            String filepath = FFileS.getWorkDirectory() + upload.filename;  // 建立字符串变量用于存放上传文件路径
+
+            UploadFile = LittleFS.open(filepath, "w");  // 在LittleFS中建立文件用于写入用户上传的文件数据
+
+        } else if (upload.status == UPLOAD_FILE_WRITE) {                       // 如果上传状态为UPLOAD_FILE_WRITE
+            if (UploadFile) UploadFile.write(upload.buf, upload.currentSize);  // 向LittleFS文件写入浏览器发来的文件数据
+
+        } else if (upload.status == UPLOAD_FILE_END) {                                                       // 如果上传状态为UPLOAD_FILE_END
+            if (UploadFile) {                                                                                // 如果文件成功建立
+                UploadFile.close();                                                                          // 将文件关闭
+                UploadRespond = "Size: " + String(upload.totalSize) + " Byte" + "\nFile upload succeeded.";  // 返回完成信息;
+            } else {                                                                                         // 如果文件未能成功建立
+                UploadRespond = "File upload failed.";                                                       // 返回错误信息;
+            }
+        }
+    }
+
+    String uploadFile() {
+        UploadRespond = "";         // 清空响应字符串;
+        routeUploadEnabled = true;  // 授予"Upload"路由开启许可, 打开上传通道, 允许文件上传;
+
+        // 发送"上传许可"通知, 告诉客户端服务器已就绪可以上传文件;
+        server.send(200, "text/plain", "UploadLicense");
+
+        while (true) {
+            server.handleClient();
+
+            // 关闭"/upload"路由(文件上传通道关闭);
+            if (UploadRespond != "") {
+                routeUploadEnabled = false;
+                return UploadRespond;
+            }
+        }
+    }
+} WebServer;
+
 class CMDControlPanel {
    private:
     String CMD = "";           // 用来缓存CMD指令;
@@ -1480,7 +1636,10 @@ class CMDControlPanel {
         // 检查用户的IP地址;
         bool LockerState = false;        // 将CMD设为锁定状态;
         for (auto& i : clientLogedIP) {  // 将请求用户的IP与已登录并且正在使用还未登出CMD用户的IP地址进行比对;
-            if (i == clientLogingIP) LockerState = true;  // 如果发现该IP还在登录状态(未登出)则为此用户开放CMD;
+            if (i == clientLogingIP) {
+                LockerState = true;  // 如果发现该IP还在登录状态(未登出)则为此用户开放CMD;
+                break;
+            }
         }
 
         // 当处于用户未登录状态(锁定状态)并且接收到进入CMDCP的命令;
@@ -1904,6 +2063,10 @@ class CMDControlPanel {
             CMDCP_Response("");  // 空响应(该指令无响应内容);
         }
 
+        if (CMD_Index[0] == "upload") {
+            CMDCP_Response(WebServer.uploadFile());
+        }
+
         /*
         {登出和锁定CMDCP}logout [-options] [clientIP];
         logout : 自己登出, 不会影响其他终端;
@@ -1959,70 +2122,39 @@ class CMDControlPanel {
     }
 } CMDCP;
 
-class WebServer {
-   public:
-    void beginServer() {
-        server.begin();  // 启动服务器;
+void webServerBegin() {
+    server.begin();  // 启动服务器;
 
-        // 初始化网络服务器
-        server.on("/", []() { server.send(200, "text/html", CMDCP_Online); });
-        server.on("/CMD", []() {
-            // 从浏览器发送的信息中获取指令（字符串格式）
-            String CMDCP_Online_Message = server.arg("message");
+    /*打开网络路由*/
 
-            String CMDCP_Send_Message = CMDCP.CMDControlPanelOnlinePortal(CMDCP_Online_Message);
+    // 打开"/"Route, 发送CMDCP_Online页面;
+    server.on("/", []() { server.send(200, "text/html", CMDCP_Online); });
 
-            if (allowResponse == true) server.send(200, "text/html", CMDCP_Send_Message);
-        });
-    }
+    // 打开"/CMD"Route, 接收CMD指令和发送指令执行结果;
+    server.on("/CMD", []() {
+        // 从浏览器发送的信息中获取指令（字符串格式）
+        String CMDCP_Online_Message = server.arg("message");
 
-    // 检查WIFI是否连接,若没有连接则连接;
-    void WiFi_Connect() {
-        // 读取时间数据(从RAM)如果数据为"00:00"则表示系统正在启动, 否则表示系统正常运行时需要确认WIFI连接正常(两种情况播放的动画不同);
-        if (timeRef.timeRead() == "00:00")
-            anim.setAnimation(67, 6);  // 设置动画播放位置(其他参数默认);
-        else
-            anim.setAnimation(112, 6);  // 设置动画播放位置(其他参数默认);
+        // 将字符串送入CMDCP解析命令;
+        String CMDCP_Send_Message = CMDCP.CMDControlPanelOnlinePortal(CMDCP_Online_Message);
 
-        if (WiFi.status() != WL_CONNECTED) {
-            WIFI_State = false;
+        // 向终端响应CMDCP的返回值;
+        if (allowResponse == true) server.send(200, "text/html", CMDCP_Send_Message);
+    });
 
-            // 读取WIFI_Config.ini文件(保存了WIFI名称和密码), 以<SSID/PASSWD>分割字符串;
-            vector<String> SSID_PASSWD = oled.strsplit(FFileS.readFile("", "/WIFI_Config.ini"), "<SSID/PASSWD>");
+    // 回复状态码 200 给客户端
+    auto respondOK = [](void) -> void { server.send(200); };
 
-            WiFi.begin(SSID_PASSWD[0], SSID_PASSWD[1]);
-            // 等待WIFI连接(超时时间为10s);
-            for (unsigned char i = 0; i < 100; ++i) {
-                if (WiFi.status() == WL_CONNECTED) {
-                    Serial.print("IP Address: ");
-                    Serial.print(WiFi.localIP());
-                    Serial.println(":" + String(ServerPort));
-
-                    // WIFI连接完成后清空动画播放区域;
-                    //  读取时间数据(从RAM)如果数据为"00:00"则表示系统正在启动, 否则表示系统正常运行时需要确认WIFI连接正常(两种情况播放的动画不同);
-                    if (timeRef.timeRead() == "00:00")
-                        // 清空进度条加载动画区域;
-                        oled.OLED_DrawBMP(67, 6, anim.loadingBar_60x8_30F.IMG_Width, anim.loadingBar_60x8_30F.IMG_Hight, LoadingBar_60x8_30F[30]);
-
-                    else
-                        // 清空加载动画区域;
-                        oled.OLED_DrawBMP(112, 6, anim.loading_X16_60F.IMG_Width, anim.loading_X16_60F.IMG_Hight, Loading_X16_60F[30]);
-
-                    WIFI_State = true;
-                    break;
-                } else {
-                    // 读取时间数据(从RAM)如果数据为"00:00"则表示系统正在启动, 否则表示系统正常运行时需要确认WIFI连接正常(两种情况播放的动画不同);
-                    if (timeRef.timeRead() == "00:00")
-                        anim.runAnimation(anim.loadingBar_60x8_30F);  // 播放进度条加载动画;
-                    else
-                        anim.runAnimation(anim.loading_X16_60F);  // 播放加载动画;
-                }
-            }
+    // "/upload"路由, 用于接收网页文件;
+    server.on("/upload", HTTP_POST, respondOK, []() {
+        // 获取路由开启许可, 如果获得许可则打开上传通道立即接收文件, 否则返回404(许可的作用是保证服务器安全).
+        if (WebServer.getRouteUploadStatus() == true) {
+            WebServer.handleFileUpload();
         } else {
-            WIFI_State = true;
+            server.send(404, "text/plain", "404 Not Found");
         }
-    }
-} WebServer;
+    });
+}
 
 void setup(void) {
     Serial.begin(115200);
@@ -2047,6 +2179,7 @@ void setup(void) {
     /*----GPIO初始化完成----*/
 
     WebServer.WiFi_Connect();  // 连接WIFI;
+    WebServer.MQTT_Begin();    // 配置MQTT并连接阿里云MQTT服务器;
 
     http.setTimeout(TimeOut);           // 设置连接超时时间;
     http.begin(client, GetSysTimeUrl);  // 初始化获取网络时间;
@@ -2061,12 +2194,13 @@ void setup(void) {
         if (digitalRead(SENOUT) == HIGH && WiFi.status() != WL_CONNECTED) WIFI_State = false;
     });
 
-    timeRef.begin();          // 用于更新时间(多线程);
-    Desktop.begin();          // 用于刷新桌面(多线程);
-    CMDCP.begin();            // 启动CMDControlPanel服务;
-    WebServer.beginServer();  // 启动网络服务;
+    timeRef.begin();  // 用于更新时间(多线程);
+    Desktop.begin();  // 用于刷新桌面(多线程);
+    CMDCP.begin();    // 启动CMDControlPanel服务;
 
     SysSleep.resumeFromDeepSleep();  // 从深度睡眠恢复系统(恢复深度睡眠前的状态, 如果是从深度睡眠中醒来的话);
+
+    webServerBegin();  // 启动网络服务器;
 
     oled.OLED_Clear();       // 清空屏幕;
     Desktop.Main_Desktop();  // 渲染主桌面;
@@ -2111,5 +2245,6 @@ void loop(void) {
 
     if (WIFI_State == false) WebServer.WiFi_Connect();  // 如果WIFI连接标志为false则连接WIFI;
 
+    WebServer.MQTT_Client();
     server.handleClient();
 }
