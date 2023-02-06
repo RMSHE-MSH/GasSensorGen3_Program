@@ -1368,9 +1368,10 @@ class WebServer {
    private:
     File UploadFile;  // 建立文件对象用于文件上传至服务器闪存;
     bool routeUploadEnabled = false;
-    String UploadRespond = "";  // 用于回复终端文件是否上次成功;
 
    public:
+    String UploadRespond = "";  // 用于回复终端文件是否上次成功;
+
     // 检查WIFI是否连接,若没有连接则连接;
     void WiFi_Connect() {
         // 读取时间数据(从RAM)如果数据为"00:00"则表示系统正在启动, 否则表示系统正常运行时需要确认WIFI连接正常(两种情况播放的动画不同);
@@ -1478,13 +1479,15 @@ class WebServer {
         routeUploadEnabled = true;  // 授予"Upload"路由开启许可, 打开上传通道, 允许文件上传;
 
         // 发送"上传许可"通知, 告诉客户端服务器已就绪可以上传文件;
-        server.send(200, "text/plain", "UploadLicense");
+        server.send(200, "text/plain", "EnableUpload");
 
+        // 接收文件流;
         while (true) {
             server.handleClient();
 
-            // 关闭"/upload"路由(文件上传通道关闭);
+            // 如果"UploadRespond"有字符串, 则表示文件已经上传完成(或者失败);
             if (UploadRespond != "") {
+                // 关闭"/upload"路由(文件上传通道关闭);
                 routeUploadEnabled = false;
                 return UploadRespond;
             }
@@ -2063,8 +2066,15 @@ class CMDControlPanel {
             CMDCP_Response("");  // 空响应(该指令无响应内容);
         }
 
+        //  {从终端上传文件到服务器}upload [-options];
+        // upload -s : 查看上一次文件上传的结果(终端在上传完成后会自动请求一次该指令, 以返回结果);
         if (CMD_Index[0] == "upload") {
-            CMDCP_Response(WebServer.uploadFile());
+            if (CMD_Index[1] == "-s") {
+                CMDCP_Response(WebServer.UploadRespond);
+            } else {
+                WebServer.uploadFile();  // 准备接收文件;
+                CMDCP_Response("");      // 空响应(该指令无响应内容);
+            }
         }
 
         /*
@@ -2128,7 +2138,9 @@ void webServerBegin() {
     /*打开网络路由*/
 
     // 打开"/"Route, 发送CMDCP_Online页面;
-    server.on("/", []() { server.send(200, "text/html", CMDCP_Online); });
+    server.on("/", []() { server.send(200, "text/html", FFileS.readFile("", "/WebServer/CMDCP_Online.html")); });
+    // CMDCP_Online
+    //  FFileS.readFile("", "/WebServer/CMDCP_Online.html")
 
     // 打开"/CMD"Route, 接收CMD指令和发送指令执行结果;
     server.on("/CMD", []() {
