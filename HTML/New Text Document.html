@@ -1,0 +1,40 @@
+<html>
+
+<head>
+    <title>GasSenserOS Drawing Board</title>
+    <style>
+        body {
+            background-color: #343541;
+            color: #ececf1;
+            font-family: Arial, sans-serif;
+            font-size: 26px;
+            line-height: 1.5;
+            margin: 0;
+            padding: 0;
+            transition: all 0.24s ease-in-out;
+        }
+    </style>
+
+    <script>
+        document.onmousemove = function (event) {
+            var x = Math.floor(128 * (event.clientX / window.innerWidth));
+            var y = Math.floor(64 * (event.clientY / window.innerHeight));
+            document.getElementById("demo").innerHTML = "X: " + x + " Y: " + y;
+
+            fetch('http://192.168.31.175:80/DB', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'text/plain'
+                },
+                body: x + ',' + y
+            });
+        };
+
+    </script>
+</head>
+
+<body>
+    <p id="demo"></p>
+</body>
+
+</html>

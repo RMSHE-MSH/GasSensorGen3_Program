@@ -335,7 +335,7 @@ void OLED::putpixel(u8 xPixel, u8 yPixel, bool enable) {
 }
 
 // 这个函数用于画直线;
-void OLED::line(u8 x1Pixel, u8 y1Pixel, u8 x2Pixel, u8 y2Pixel) {
+void OLED::line(u8 x1Pixel, u8 y1Pixel, u8 x2Pixel, u8 y2Pixel, bool enable) {
     unsigned char dx = abs(x2Pixel - x1Pixel);
     unsigned char dy = abs(y2Pixel - y1Pixel);
     short sx = (x1Pixel < x2Pixel) ? 1 : -1;
@@ -344,7 +344,7 @@ void OLED::line(u8 x1Pixel, u8 y1Pixel, u8 x2Pixel, u8 y2Pixel) {
     short e2;
 
     while (true) {
-        putpixel(x1Pixel, y1Pixel);
+        putpixel(x1Pixel, y1Pixel, enable);
         if (x1Pixel == x2Pixel && y1Pixel == y2Pixel) break;
         e2 = err;
         if (e2 > -dx) {

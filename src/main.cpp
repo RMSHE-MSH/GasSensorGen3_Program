@@ -2132,6 +2132,21 @@ class CMDControlPanel {
     }
 } CMDCP;
 
+class DrawingBoard {
+   private:
+    POINT last_pos = {0, 0};
+
+   public:
+    void mouse(unsigned char x, unsigned char y) {
+        oled.clearrectangle(last_pos.x, last_pos.y, last_pos.x + 2, last_pos.y + 2);
+
+        oled.fillrectangle(x, y, x + 2, y + 2);
+
+        last_pos.x = x;
+        last_pos.y = y;
+    }
+} DB;
+
 void webServerBegin() {
     server.begin();  // 启动服务器;
 
@@ -2166,6 +2181,19 @@ void webServerBegin() {
             server.send(404, "text/plain", "404 Not Found");
         }
     });
+
+    /*
+    server.on("/DB", []() {
+        String mousePosition = server.arg("plain");
+        unsigned char commaIndex = mousePosition.indexOf(',');
+        unsigned char x = mousePosition.substring(0, commaIndex).toInt();
+        unsigned char y = mousePosition.substring(commaIndex + 1).toInt();
+
+        DB.mouse(x, y);
+
+        server.send(200, "text/plain", "Received");
+    });
+    */
 }
 
 void setup(void) {

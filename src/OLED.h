@@ -138,7 +138,7 @@ class OLED {
     void putpixel(u8 xPixel, u8 yPixel, bool enabl = true);
 
     // 这个函数用于画直线;
-    void line(u8 x1Pixel, u8 y1Pixel, u8 x2Pixel, u8 y2Pixel);
+    void line(u8 x1Pixel, u8 y1Pixel, u8 x2Pixel, u8 y2Pixel, bool enable = true);
 
     // 这个函数用于画无填充的矩形;
     void rectangle(u8 leftPixel, u8 topPixel, u8 rightPixel, u8 bottomPixel);
