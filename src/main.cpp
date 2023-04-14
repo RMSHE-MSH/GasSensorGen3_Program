@@ -1,4 +1,4 @@
-// [RMSHE Infinty] GasSensorGen3_Program 2023.01.20 Powered by RMSHE
+// [RMSHE Infinty] GasSensorGen3_Program V2023.04.15 Powered by RMSHE
 // MCU: ESP8266; MODULE: ESP12F 74880;
 #include <Hash.h>
 #include <PubSubClient.h>
@@ -1386,7 +1386,8 @@ class WebServer {
             // 读取WIFI_Config.ini文件(保存了WIFI名称和密码), 以<SSID/PASSWD>分割字符串;
             vector<String> SSID_PASSWD = oled.strsplit(FFileS.readFile("", "/WIFI_Config.ini"), "<SSID/PASSWD>");
 
-            WiFi.begin(SSID_PASSWD[0], SSID_PASSWD[1]);
+            // WiFi.begin(SSID_PASSWD[0], SSID_PASSWD[1]);
+            WiFi.begin(SSID, PASSWORD);
             // 等待WIFI连接(超时时间为10s);
             for (unsigned char i = 0; i < 100; ++i) {
                 if (WiFi.status() == WL_CONNECTED) {
@@ -1899,9 +1900,11 @@ class CMDControlPanel {
         */
         if (CMD_Index[0] == "buzz") {
             if (CMD_Index[1] == "1" || CMD_Index[1] == "true" || CMD_Index[1] == "enable") {
+                allowDownloadMode = false;     // 禁用下载模式;
                 alert.BUZZER_Enable(0, true);  // 打开蜂鸣器
             } else if (CMD_Index[1] == "0" || CMD_Index[1] == "false" || CMD_Index[1] == "disable") {
                 alert.BUZZER_Enable(0, false);  // 关闭蜂鸣器
+                allowDownloadMode = true;       // 启用下载模式;
             }
             CMDCP_Response("");  // 空响应(该指令无响应内容);
         }
@@ -2153,7 +2156,9 @@ void webServerBegin() {
     /*打开网络路由*/
 
     // 打开"/"Route, 发送CMDCP_Online页面;
-    server.on("/", []() { server.send(200, "text/html", FFileS.readFile("", "/WebServer/CMDCP_Online.html")); });
+    // server.on("/", []() { server.send(200, "text/html", FFileS.readFile("", "/WebServer/CMDCP_Online.html")); });// - 01;
+    server.on("/", []() { server.send(200, "text/html", CMDCP_Online); });  // - 02;
+
     // CMDCP_Online
     //  FFileS.readFile("", "/WebServer/CMDCP_Online.html")
 

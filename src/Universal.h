@@ -54,7 +54,7 @@
 // WIFI信息;
 #define ServerPort 80
 #define SSID "RMSHE"
-#define PASSWORD "<RMSHE>-GAATTC-A23187-[//2022.05.12]"
+#define PASSWORD "GAATTC-A23187"
 
 /* 设备的三元组信息*/
 #define PRODUCT_KEY "i6abR7NBjfB"
