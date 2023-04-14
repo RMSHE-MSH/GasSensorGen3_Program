@@ -11,6 +11,8 @@
 #include "Tool.h"
 #include "Universal.h"
 #include "WebServer.h"
+#include "fourier_transform.hpp"
+#include "tree.hpp"
 
 ALERT alert;
 OLED oled;
