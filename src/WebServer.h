@@ -1,3 +1,4 @@
+#pragma once
 #ifndef __WEBSERVER_H
 #define __WEBSERVER_H
 #include <avr/pgmspace.h>

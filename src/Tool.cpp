@@ -1,3 +1,4 @@
+#pragma once
 #include "Tool.h"
 
 // 查找数组中的最大值(目标数组, 数组长度);

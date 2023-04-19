@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _WEATHERNOW_H_
 #define _WEATHERNOW_H_
 

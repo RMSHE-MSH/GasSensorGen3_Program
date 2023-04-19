@@ -1,3 +1,4 @@
+#pragma once
 #ifndef __OLEDFONT_H
 #define __OLEDFONT_H
 #include <avr/pgmspace.h>

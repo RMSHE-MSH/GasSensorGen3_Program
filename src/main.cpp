@@ -1,4 +1,4 @@
-// [RMSHE Infinty] GasSensorGen3_Program V2023.04.15 Powered by RMSHE
+// [RMSHE Infinty] 嵌入式智能可燃气体报警系统主控软件 GasSensorGen3_Program V2023.04.15 Powered by RMSHE
 // MCU: ESP8266; MODULE: ESP12F 74880;
 #include <Hash.h>
 #include <PubSubClient.h>

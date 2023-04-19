@@ -1,3 +1,4 @@
+#pragma once
 #include "Universal.h"
 
 class TOOL {

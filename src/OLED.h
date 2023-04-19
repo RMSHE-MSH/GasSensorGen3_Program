@@ -1,4 +1,4 @@
-
+#pragma once
 #include "Universal.h"
 using namespace std;
 
