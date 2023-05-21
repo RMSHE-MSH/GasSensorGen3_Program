@@ -387,142 +387,103 @@ CMDCP_State = true
 ## 示例 - Example
 ```
 > history
-192.168.1.1-202305211310-osinfo
-192.168.1.1-202305211311-disk 3000000 
-192.168.1.1-202305211312-mv /file1.txt /folder/file1_move.txt
-192.168.1.1-202305211313-history
+192.168.1.1-20230521131000-osinfo
+192.168.1.1-20230521131100-disk 3000000 
+192.168.1.1-20230521131200-mv /file1.txt /folder/file1_move.txt
+192.168.1.1-20230521131300-history
 ```
 ---
-## `history -s`
-
-   `history -s`命令用于显示深度睡眠前执行的命令。
-
-*Display commands executed before deep sleep.*
-
+# `history -s`
+显示深度睡眠前执行过的所有命令, 显示内容包括执行命令时的: IP地址, 时间, 命令.<br>*All commands executed before deep sleep are displayed, including the IP address, time, and command when the command is executed.*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   history -s
-   ```
-
-## `history -c`
-
-   `history -c`命令用于删除命令历史记录。
-
- *Remove command history.*
-
+```
+> history -s
+192.168.1.1-20230521131000-osinfo
+192.168.1.1-20230521131100-disk 3000000 
+192.168.1.1-20230521131200-mv /file1.txt /folder/file1_move.txt
+192.168.1.1-20230521131300-history
+```
+---
+# `history -c`
+清除命令历史记录.<br>*Remove command history.*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   history -c
-   ```
-
-## `who`
-
-   `who`命令用于查看已经登录当前主机的用户终端的IP地址。
-
-*View the IP address of the user terminal logged into the current host.*
-
+```
+> history -c
+```
+---
+# `who`
+查看已登录当前主机的用户终端的IP地址.<br>*View the IP address of the user terminal logged into the current host.*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   who
-   ```
-
-## `last`
-
-   `last`命令用于查看系统登录日志。
-
-*View system login logs.*
-
+```
+> who
+192.168.1.1
+192.168.1.2
+192.168.1.3
+```
+---
+# `last`
+查看系统登录日志(IP地址, 登入时间, 登出时间).<br>*View system login logs(IP address, login time, logout time).*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   last
-   ```
-
-## `last -c`
-
-   `last -c`命令用于删除系统登录日志。
-
- *Remove system login logs.*
-
+```
+> last
+192.168.1.1-20230521131000-login
+192.168.1.1-20230521161000-logout
+```
+---
+# `last -c`
+清除系统登录日志.<br>*Remove system login logs.*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   last -c
-   ```
-
-指令使用说明：
-
-## `date`
-
-   `date`命令用于显示系统时间。
-
-*Display system time.*
-
+```
+> last -c
+```
+---
+# `date`
+显示系统本地时间.<br>*Displays the system local time.*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   date
-   ```
-
-## `date -n`
-
-   `date -n`命令用于同步网络时间。
-
-*Synchronize network time.*
-
+```
+> date
+20230521131000
+```
+---
+# `date -n`
+同步网络时间.<br>*Synchronize network time.*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   date -n
-   ```
-
-## `date -s [timeStr]`
-
-   `date -s [timeStr]`命令用于设置系统时间。其中，timeStr的格式为：年月日时分秒（例如：2023年2月3日12点16分01秒）。
-
-*Set system time, timeStr = 20230203121601 (Year Month Day Hour Minute Second).*
-
+```
+> date
+19700101000000
+> date -n
+> date
+20230521175800
+```
+---
+# `date -s [timeStr]`
+设置系统时间.<br>*Set system time*
 ## 参数 - Parameters
-
-`null`
-
+`timeStr`
+提供时间格式为：年月日时分秒(例如：20230521175800)<br>*The time format is YYMMDDHHMMSS(Example: 20230521175800).*
 ## 示例 - Example
-
-   ```
-   date -s 20230203121601
-   ```
-
+```
+> date
+19700101000000
+> date -s 20230203121601
+> date
+20230203121601
+```
+---
 ## `clear`
 
    `clear`命令用于清除控制台并释放内存。
