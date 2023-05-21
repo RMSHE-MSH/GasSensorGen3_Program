@@ -377,25 +377,22 @@ CMDCP_State = true
 2. 当`time_us`为`0`时, 系统将永久处于深度睡眠状态, 只能通过手动的物理复位唤醒.<br>*When `time_us` is `0`, the system is permanently in deep sleep and can only be awakened by manual physical reset.*
 ## 示例 - Example
 ```
-> disk 10000000     // 进入深度睡眠模式, 10s后自动唤醒.
+> disk 3000000    // Enter deep sleep mode and wake up automatically after 30 seconds.
 ```
 ---
-## `history`
-
-   `history`命令用于显示命令历史记录。执行此命令将显示之前执行过的命令列表。
-
-*Show command history.*
-
+# `history`
+显示之前执行过的所有命令, 显示内容包括执行命令时的: IP地址, 时间, 命令.<br>*Show command history. Including the IP address, time, and command when the command is executed.*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   history
-   ```
-
+```
+> history
+192.168.1.1-202305211310-osinfo
+192.168.1.1-202305211311-disk 3000000 
+192.168.1.1-202305211312-mv /file1.txt /folder/file1_move.txt
+192.168.1.1-202305211313-history
+```
+---
 ## `history -s`
 
    `history -s`命令用于显示深度睡眠前执行的命令。
