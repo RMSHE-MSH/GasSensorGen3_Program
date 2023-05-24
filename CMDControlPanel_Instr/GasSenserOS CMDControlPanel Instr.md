@@ -484,55 +484,41 @@ CMDCP_State = true
 20230203121601
 ```
 ---
-## `clear`
-
-   `clear`命令用于清除控制台并释放内存。
-
-*Clear console and free memory.*
-
+# `clear`
+清空控制台并释放内存.<br>*Clear console and free memory.*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   clear
-   ```
-
-指令使用说明：
-
-## `df`
-
-   `df`命令用于显示闪存（Flash）信息。
-
- *Display Flash information.*
-
+```
+> clear
+```
+---
+# `df`
+显示闪存(Flash)信息.<br>*Display Flash information.*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   df
-   ```
-
-## `free`
-
-   `free`命令用于显示剩余的RAM。
-
-*Display remaining RAM.*
-
+```
+> df
+Flash info (Byte)
+Total:1024000
+Used:106496
+[==          ]10%
+MaxPathLength:32
+MaxOpenFiles:5
+BlockSize:8192
+PageSize:256
+```
+---
+# `free`
+显示剩余的RAM.<br>*Display remaining RAM.*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   free
-   ```
+```
+> free
+FreeRAM:34536 Byte
+```
 
 ## `wifi [SSID] [PASSWORD]`
 
