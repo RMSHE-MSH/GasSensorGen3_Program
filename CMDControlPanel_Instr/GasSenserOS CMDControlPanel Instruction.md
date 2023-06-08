@@ -1,6 +1,7 @@
-# GasSenserOS终端指令说明
+# GasSenserOS CMDControlPanel Instruction<br>GasSenserOS终端指令说明
+
 ## 概述 - Overview
-该终端指令系统是为了方便用户使用GasSenserOS操作系统而设计的。
+该终端指令系统是为了方便用户使用GasSenserOS操作系统而设计的.<br>*The terminal instruction system is designed for the convenience of users using the GasSenser Operating System.*
 # `pwd`
 显示当前工作目录的路径.<br>*Print work directory.*
 ## 参数 - Parameters
@@ -485,7 +486,11 @@ CMDCP_State = true
 ```
 ---
 # `clear`
+<<<<<<< HEAD:CMDControlPanel_Instr/GasSenserOS CMDControlPanel Instr.md
 清空控制台并释放内存.<br>*Clear console and free memory.*
+=======
+清空控制台输出并释放内存.<br>*Clear console output and free memory.*
+>>>>>>> eef7d62 (master):CMDControlPanel_Instr/GasSenserOS CMDControlPanel Instruction.md
 ## 参数 - Parameters
 `null`
 ## 示例 - Example
@@ -519,6 +524,7 @@ PageSize:256
 > free
 FreeRAM:34536 Byte
 ```
+<<<<<<< HEAD:CMDControlPanel_Instr/GasSenserOS CMDControlPanel Instr.md
 
 ## `wifi [SSID] [PASSWORD]`
 
@@ -526,94 +532,64 @@ FreeRAM:34536 Byte
 
  *Configure WIFI connection, set WIFI SSID and PASSWORD.*
 
+=======
+---
+# `wifi [SSID] [PASSWORD]`
+配置WIFI连接，设置`WIFI SSID`和`PASSWORD`.<br>*Configure WIFI connection, set `WIFI SSID` and `PASSWORD`.*
+>>>>>>> eef7d62 (master):CMDControlPanel_Instr/GasSenserOS CMDControlPanel Instruction.md
 ## 参数 - Parameters
-
-`null`
-
+`SSID`
+设置WIFI服务集标识(WiFi名称).<br>*Set WIFI Service Set Identifier(WIFI Name).*
+`PASSWORD`
+设置WIFI密码.<br>*Set WIFI Password*
 ## 示例 - Example
-
-   ```
-   wifi my_ssid my_password
-   ```
-
-## `poweroff`
-
-   `poweroff`命令用于进行长时间深度睡眠（Indefinite deep sleep）。
-
-*Indefinite deep sleep.*
-
+```
+> wifi RMSHE 114514
+```
+---
+# `poweroff`
+进行无限期的深度休眠(只能通过手动的物理复位唤醒).<br>*Perform infinite deep sleep(Can only be awakened by manual physical reset).*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   poweroff
-   ```
-
-指令使用说明：
-
-## `logout`
-
-   `logout`命令用于注销当前会话并锁定CMDCP。
-
-*Log out and lock CMDCP.*
-
+```
+> poweroff
+```
+---
+# `logout`
+登出并锁定CMDCP<br>*Log out and lock CMDCP.*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   logout
-   ```
-
-## `logout -k [clientIP]`
-
-   `logout -k [clientIP]`命令用于注销具有指定IP地址的终端。
-
-*Logout of the terminals with the specified IP address.*
-
+```
+> logout
+```
+---
+# `logout -k [clientIP]`
+登出指定IP地址的终端.<br>*Logout of the terminals with the specified IP address.*
 ## 参数 - Parameters
-
-`null`
-
-## 示例 - Example
-
-   ```
-   logout -k 192.168.1.100
-   ```
-
-## `logout -k other`
-
-   `logout -k other`命令用于注销除自己之外的其他终端。
-
-*Logout of other terminals except yourself.*
-
+`clientIP`
+指定用户IP地址.<br>*Specify the client IP address.*
+# 示例 - Example
+```
+> logout -k 192.168.1.100
+```
+---
+# `logout -k other`
+登出除自己外的其他所有终端.<br>*Log out all terminals except yourself.*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   logout -k other
-   ```
-
-## `logout -k all`
-
-   `logout -k all`命令用于注销所有终端。
-
-*logout of all terminals.*
-
+```
+> logout -k other
+```
+---
+# `logout -k all`
+登出所有终端(包括你自己).<br>*logout of all terminals(Including yourself).*
 ## 参数 - Parameters
-
 `null`
-
 ## 示例 - Example
-
-   ```
-   logout -k all
-   ```
+```
+> logout -k all
+```
+---
