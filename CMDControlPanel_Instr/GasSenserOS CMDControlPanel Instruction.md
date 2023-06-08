@@ -524,19 +524,9 @@ PageSize:256
 > free
 FreeRAM:34536 Byte
 ```
-<<<<<<< HEAD:CMDControlPanel_Instr/GasSenserOS CMDControlPanel Instr.md
-
-## `wifi [SSID] [PASSWORD]`
-
-   `wifi [SSID] [PASSWORD]`命令用于配置WIFI连接，设置WIFI SSID和PASSWORD。
-
- *Configure WIFI connection, set WIFI SSID and PASSWORD.*
-
-=======
 ---
 # `wifi [SSID] [PASSWORD]`
 配置WIFI连接，设置`WIFI SSID`和`PASSWORD`.<br>*Configure WIFI connection, set `WIFI SSID` and `PASSWORD`.*
->>>>>>> eef7d62 (master):CMDControlPanel_Instr/GasSenserOS CMDControlPanel Instruction.md
 ## 参数 - Parameters
 `SSID`
 设置WIFI服务集标识(WiFi名称).<br>*Set WIFI Service Set Identifier(WIFI Name).*
