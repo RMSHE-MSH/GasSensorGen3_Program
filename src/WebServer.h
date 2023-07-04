@@ -276,7 +276,7 @@ const char CMDCP_Online[] PROGMEM = R"rawliteral(
                         formData.append("file", file);
 
                         var xhr = new XMLHttpRequest();
-                        xhr.open("POST", "http://192.168.137.92:80/upload", true);
+                        xhr.open("POST", "http://192.168.43.164:80/upload", true);
                         xhr.send(formData);
 
                         //等待1000ms;
@@ -284,7 +284,7 @@ const char CMDCP_Online[] PROGMEM = R"rawliteral(
                             document.getElementById("fileInput").value = "";//清空文件选择器;
 
                             //向服务器发送指令查看文件是否上传成功;
-                            xhttp.open("GET", "http://192.168.137.92:80/CMD?message=upload -s", true);
+                            xhttp.open("GET", "http://192.168.43.164:80/CMD?message=upload -s", true);
                             xhttp.send();
                         }, 1000);
                     }
@@ -296,7 +296,7 @@ const char CMDCP_Online[] PROGMEM = R"rawliteral(
 
             document.getElementById("console").value += "\n> " + message;
             document.getElementById("console").scrollTop = document.getElementById("console").scrollHeight;
-            xhttp.open("GET", "http://192.168.137.92:80/CMD?message=" + message, true);
+            xhttp.open("GET", "http://192.168.43.164:80/CMD?message=" + message, true);
             xhttp.send();
 
             if (message == "clear") document.getElementById("console").value = "GasSenserOS RMSHE >> CMDControlPanel";

@@ -1391,7 +1391,7 @@ class WebServer {
             // WiFi.begin(SSID_PASSWD[0], SSID_PASSWD[1]);
             WiFi.begin(SSID, PASSWORD);
             // 等待WIFI连接(超时时间为10s);
-            for (unsigned char i = 0; i < 100; ++i) {
+            for (unsigned char i = 0; i < 6; ++i) {
                 if (WiFi.status() == WL_CONNECTED) {
                     Serial.print("IP Address: ");
                     Serial.print(WiFi.localIP());
